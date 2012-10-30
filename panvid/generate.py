@@ -2,7 +2,7 @@ import math
 import cv2
 import numpy
 from random import *
-
+import time
 
 class PathFilters(object):
     def __init__(self, path):
@@ -37,6 +37,22 @@ class PathFilters(object):
         self._path = newpath
         return self
 
+    def fixPath(self, frame_size, image_size):
+        newpath = []
+        for p in self._path:
+            x = p[0]
+            if round(x - frame_size[0]/2) < 0:
+                x -= round(x - frame_size[0]/2)
+            if round(x - frame_size[0]/2) + frame_size[0] >= image_size[0]:
+                x -= round(x - frame_size[0]/2) + frame_size[0] - image_size[0]
+            y = p[1]
+            if round(y - frame_size[1]/2) < 0:
+                y -= round(y - frame_size[1]/2)
+            if round(y - frame_size[1]/2) + frame_size[1] >= image_size[1]:
+                y -= round(y - frame_size[1]/2) + frame_size[1] - image_size[1]
+            newpath.append((x,y))
+        self._path = newpath
+        return self
 
     def getPath(self):
         return self._path;
@@ -122,16 +138,16 @@ class VideoEffects(object):
         return frame
 
 
-    def noise(self, noise_type=cv2.cv.CV_RAND_UNI, parm1=0, parm2=256):
-        self._toUse.append(lambda frame: self._noise(noise_type, frame, parm1,
-                parm2))
+    def noise(self, noise_type=cv2.cv.CV_RAND_UNI, parm1=0, parm2=50):
+        self._toUse.append(lambda frame: self._noise(noise_type, frame, parm1, parm2))
 
     def _noise(self, noise_type, frame, parm1, parm2):
-        rand = cv2.cv.CreateImage((frame.shape[0],frame.shape[1]), 8, frame.shape[2])
-        cv2.cv.RandArr(cv2.cv.RNG(0), rand, cv2.cv.CV_RAND_NORMAL, parm1, parm2)
+        rand = cv2.cv.CreateImage((frame.shape[0], frame.shape[1]), 8, frame.shape[2])
+        cv2.cv.RandArr(cv2.cv.RNG(round(time.time())), rand, cv2.cv.CV_RAND_NORMAL, parm1, parm2)
         frame = cv2.cv.fromarray(frame)
         cv2.cv.Add(rand, frame, frame)
-        return numpy.asarray(frame)
+        retframe = numpy.asarray(frame)
+        return retframe
 
     def apply(self, frame):
         cp = frame

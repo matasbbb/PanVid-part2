@@ -65,5 +65,5 @@ class TestVideoEffects(unittest.TestCase):
         vidgen = VideoSimpleGenerator(path, img)
         vidgen.save("/tmp/test_noise.avi", frame_size, fps=30, filt=filt)
 
-
-
+if __name__ == '__main__':
+    unittest.main()
