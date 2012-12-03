@@ -1,5 +1,6 @@
 import unittest
-from panvid.generate import *
+from panvid.generatePath import *
+from panvid.generateVideo import *
 import cv2
 
 

@@ -1,5 +1,7 @@
-from panvid.generate import *
+from panvid.generateVideo import *
+from panvid.generatePath import *
 from panvid.predict import *
+from panvid.input import *
 import cv2
 import cProfile
 import pstats
@@ -7,7 +9,7 @@ import pstats
 class Benchmark(object):
     def __init__(self, imgpath="tests/samples/IMG_8686.JPG", vidpath="/tmp/bench_%s.avi", frame_size=(1000,1000)):
         img = cv2.imread(imgpath)
-        gen = PathGenerator(100, img, None, frame_size)
+        gen = PathGenerator(120, img, None, frame_size)
         path = gen.getSweapPath(2000, False)
         spshpath = PathFilters(path).applySpeedChange(speed=30).applyShake().fixPath(frame_size, (img.shape[0], img.shape[1])).getPath()
         #spshpath = path

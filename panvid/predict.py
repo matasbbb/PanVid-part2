@@ -26,53 +26,28 @@ class MatchDesciptorsFlann(object):
         pairs = np.int32(zip(idx1, idx2[:,0]))
         return pairs[mask]
 
-class StreamInput(object):
-    def __init__(self):
-        self._framenum = 0
-
-    def skipFrames(self, n):
-        self._framenum += n
-
-class VideoInput(StreamInput):
-    def __init__(self, url):
-        StreamInput.__init__(self)
-        self._capt = cv2.VideoCapture(url)
-
-    def skipFrames(self, n):
-        for i in xrange(n):
-            self._capt.grab()
-        self._framenum += n
-
-    def getFrame(self):
-        (succ, frame) = self._capt.read()
-        if succ:
-            self._framenum += 1
-            return frame
-        else:
-            return None
-
-class ImageInput(StreamInput):
-    def __init__(self, img_list):
-        StreamInput.__init__(self)
-        self._img_list = img_list
-
-    def skipFrames(self, n):
-        self._img_list[n:]
-        self.framenum += n
-
-    def getFrame(self):
-        if len(self._img_list) == 0:
-            return None
-        frame = cv2.imread(self._img_list[0])
-        self._img_list[0] = self._img_list[1:]
-        self.framenum += 1
-        return frame
-
-class RegisterImagesStandart2D():
+class RegisiterImagesInterface():
     def __init__(self, stream):
         self._stream = stream
 
-    def getDiff2D(self, method="SURF"):
+    def getDiff(self, *args):
+        print "Not implemented getDiff!"
+        return []
+
+    def getDiff2D(self, *args):
+        homo = self.getDiff(*args);
+        rez = []
+        for data in homo:
+            if data is not None:
+                rez.append((data[1][2],data[0][2]))
+            else:
+                rez.append(None)
+        return rez
+
+
+class RegisterImagesStandart2D(RegisiterImagesInterface):
+
+    def getDiff(self, method="SURF"):
         lastframe = self._stream.getFrame()
         frame = self._stream.getFrame()
         extractor = FeatureExtractor(method)
@@ -89,14 +64,14 @@ class RegisterImagesStandart2D():
             #Find homography
             if (len(c2) >= 4):
                 homography, mask = cv2.findHomography(c2, c1, cv2.RANSAC)
-                xdiff = homography[1][2]
-                ydiff = homography[0][2]
-                diff_2d.append((xdiff, ydiff))
+                diff_2d.append(homography)
             else:
                 diff_2d.append(None)
             lastframe = frame
             frame = self._stream.getFrame()
         return diff_2d
+
+
 
 feature_params = dict( maxCorners = 1000,
                        qualityLevel = 0.0005,
@@ -108,11 +83,13 @@ lk_params = dict( winSize  = (23, 23),
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.01))
 
 
-class RegisterImagesLK2D():
+class RegisterImagesLK2D(RegisiterImagesInterface):
+    _args = {"back_threshold":["Back threshold",float, 2.0]}
+
     def __init__(self, stream):
         self._stream = stream
 
-    def getDiff2D(self, method="LK", back_threshold=2.0):
+    def getDiff(self, method="LK", back_threshold=2.0):
         if method is not "LK":
             print "Not implemented"
             return None
@@ -142,9 +119,7 @@ class RegisterImagesLK2D():
                 frame_idx += 1
                 continue
             homography, status = cv2.findHomography(p1, p0, cv2.RANSAC)
-            xdiff = homography[1][2]
-            ydiff = homography[0][2]
-            diff_2d.append((xdiff, ydiff))
+            diff_2d.append(homography)
             prev_frame = frame
             frame = self._stream.getFrame()
             frame_idx += 1
