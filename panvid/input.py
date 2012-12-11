@@ -12,6 +12,7 @@ class StreamInput(object):
 class VideoInput(StreamInput):
     def __init__(self, url):
         StreamInput.__init__(self)
+        self._url = url
         self._capt = cv2.VideoCapture(url)
 
     def skipFrames(self, n):
@@ -27,6 +28,15 @@ class VideoInput(StreamInput):
         else:
             return None
 
+    def getAlphaFrame(self):
+        f = self.getFrame()
+        if f is not None:
+             f = cv2.cvtColor(f, cv2.cv.CV_BGR2BGRA)
+        return f
+
+    def getClone(self):
+        return VideoInput(self._url)
+
 class VideoInputSkip(VideoInput):
     def __init__(self, url, bound, skip):
         VideoInput.__init__(self, url)
@@ -39,16 +49,18 @@ class VideoInputSkip(VideoInput):
         if succ:
             self._framenum += 1
             self.skipFrames(self._skip)
-            print self._framenum
             return frame
         else:
             return None
 
+    def getClone(self):
+        return VideoInputSkip(self._url, self._bound, self._skip)
 
 class ImageInput(StreamInput):
     def __init__(self, img_list):
         StreamInput.__init__(self)
         self._img_list = img_list
+        self._org_img_list = img_list
 
     def skipFrames(self, n):
         self._img_list[n:]
@@ -61,4 +73,7 @@ class ImageInput(StreamInput):
         self._img_list[0] = self._img_list[1:]
         self.framenum += 1
         return frame
+
+    def getClone(self):
+        return ImageInput(self._org_img_list)
 

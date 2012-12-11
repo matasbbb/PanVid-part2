@@ -26,10 +26,7 @@ class Benchmark(object):
             lt = t
 
     def bench_method(self, method="SIFT"):
-        if method == "LK":
-            register = RegisterImagesLK2D(VideoInput(self.vidpath))
-        else:
-            register = RegisterImagesStandart2D(VideoInput(self.vidpath))
+        register = RegisterImagesDetect(VideoInput(self.vidpath))
         pred_path = register.getDiff2D(method)
         diff = (0,0)
         rdiff = (0,0)
@@ -38,6 +35,7 @@ class Benchmark(object):
         badpoints = 0
         for (p,r) in zip(pred_path, self.npath):
             if p is not None:
+                q, p = p
                 diff = (diff[0] + abs(p[0] - r[0]),
                         diff[1]+  abs(p[1] - r[1]))
                 rdiff = (rdiff[0] + abs(round(p[0]) - r[0]),
@@ -57,8 +55,10 @@ b = Benchmark()
 retval = []
 for frame_size in [(250, 250), (500, 500), (1000,1000)]:
     b = Benchmark(frame_size=frame_size)
-    for method in ["LK", "SIFT"]:
+    for method in ["LK-SIFT", "LK-SURF", "LK", "SIFT", "SURF"]:
+        print "Calculating for method " + method + str(frame_size)
         cProfile.runctx("retval = b.bench_method('%s')" % method, locals(), globals(), "/tmp/bench")
-        print method + " " + str(retval) + " " + str(frame_size)
+        print "returned " + str(retval)
         p = pstats.Stats("/tmp/bench")
         p.strip_dirs().sort_stats("time").print_stats(3)
+        print ""

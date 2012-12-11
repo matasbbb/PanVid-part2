@@ -9,6 +9,7 @@ class BlendInterface():
         self._pano = stream.getFrame()
         self._window = []
         self._data = None
+        self.prevPano()
 
     def getPano(self):
         return self._pano
@@ -66,6 +67,10 @@ class BlendOverlay2D(BlendInterface):
             self._data = shift
 
 class BlendOverlayHomo(BlendInterface):
+    def __init__(self, stream):
+        BlendInterface.__init__(self, stream)
+        #self._pano = cv2.cvtColor(self._pano, cv2.cv.CV_BGR2BGRA)
+
     def blendNext(self, homo):
         if homo is None:
             print "Image skiped, expect artifacts"
@@ -93,15 +98,18 @@ class BlendOverlayHomo(BlendInterface):
             print t
             s = np.ceil(p.max(1) + t).astype(np.int32)
             t = (t[0,0], t[1,0])
-            s = (s[0,0], s[1,0])
+            # hack with max, due to 1px miscal
+            s = (max(s[0,0], int(w1+t[0])), max(s[1,0], int(h1+t[1])))
+
             print "output size: %ix%i" % s
 
             ## Translate everything
             homography[0:2,2] += t
 
             ## Warp second image to fit the first
-            pano = cv2.warpPerspective(image2, homography, s)
+            pano = cv2.warpPerspective(image2, homography, s, flags=cv2.INTER_CUBIC)
             self.prevPano(window="Debug", image=pano)
             pano[t[1]:h1+t[1], t[0]:w1+t[0]] = image1
+
             self._pano = pano
             self._data = homography
