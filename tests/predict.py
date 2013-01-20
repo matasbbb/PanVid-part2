@@ -7,7 +7,7 @@ import cv2
 
 
 class TestRegisterImages(unittest.TestCase):
-    def not_test_getPath(self):
+    def test_getPath(self):
         frame_size = (1000,1000)
         img = cv2.imread("tests/samples/IMG_8686.JPG")
         gen = PathGenerator(10, img, None, frame_size)
@@ -48,7 +48,7 @@ class TestRegisterImages(unittest.TestCase):
         register = RegisterImagesDetect(inp.getClone())
         npath = register.getDiff("SURF")
 
-        for m in ["LK", "LK-SIFT", "SIFT", "SURF"]:
+        for m in ["LK", "LK-SURF", "LK-SIFT", "SIFT"]:
             print "\n"+m
             register = RegisterImagesDetect(inp.getClone())
             pred_path = register.getDiff(m)
@@ -59,15 +59,17 @@ class TestRegisterImages(unittest.TestCase):
             for (p,r) in zip(pred_path, npath):
                 if p is not None and r is not None:
                     q, p = p
-                    _, r = r
+                    q1, r = r
                     df = 0
                     des0 = cv2.perspectiveTransform(cor,p)
                     des1 = cv2.perspectiveTransform(cor,r)
 
                     for p1,p2 in zip(des0[0],des1[0]):
                         df += abs(p1[0]-p2[0]) + abs(p1[1]-p2[1])
-                    print df
+                    print (df,q,q1)
                     diff += df
+                else:
+                    print "None!"
             print diff
             print ""
 

@@ -31,7 +31,7 @@ class MatchDesciptorsFlann(object):
 
 registered_methods = {}
 
-class RegisiterImagesInterface():
+class RegisterImagesInterface():
     def __init__(self, stream):
         self._stream = stream
 
@@ -51,7 +51,7 @@ class RegisiterImagesInterface():
         return rez
 
 
-class RegisterImagesStandart2D(RegisiterImagesInterface):
+class RegisterImagesStandart2D(RegisterImagesInterface):
     def getDiff(self, method="SURF", fmask=None):
         lastframe = self._stream.getFrame()
         frame = self._stream.getFrame()
@@ -86,18 +86,25 @@ class RegisterImagesStandart2D(RegisiterImagesInterface):
 
 registered_methods["SURF"] = RegisterImagesStandart2D
 registered_methods["SIFT"] = RegisterImagesStandart2D
+registered_methods["FAST"] = RegisterImagesStandart2D
 
-feature_params = dict( maxCorners = 200,
-                       qualityLevel = 0.005,
-                       minDistance = 6,
-                       blockSize = 23 )
+feature_params = dict( maxCorners = 100,
+                       qualityLevel = 0.05,
+                       minDistance = 40,
+                       blockSize = 23,
+                       useHarrisDetector = True)
 
 lk_params = dict( winSize  = (23, 23),
                   maxLevel = 4,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 40, 0.005))
 
-class RegisterImagesLK2D(RegisiterImagesInterface):
-    def getDiff(self, method="LK", fmask=None):
+class RegisterImagesLK2D(RegisterImagesInterface):
+    def __init__(self, *args):
+        RegisterImagesInterface.__init__(self, *args)
+        #self.detector = lambda image: cv2.FeatureDetector_create("FAST").detect(image)
+        self.detector = lambda image: cv2.goodFeaturesToTrack(image, **feature_params)
+
+    def getDiff(self, method="LK", fmask=None, doublecheck=False):
         if method != "LK":
             print "Not implemented in RegisterImagesLK2D " + method
             return None
@@ -111,29 +118,40 @@ class RegisterImagesLK2D(RegisiterImagesInterface):
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
                 if p0 is None or frame_idx % 5 == 0 or len(p0) < 16:
-                    p0 = cv2.goodFeaturesToTrack(prev_gray, **feature_params)
-
+                    p0 = self.detector(prev_gray)
                 p1, st0, err = cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, **lk_params)
-                p0r, st1, err = cv2.calcOpticalFlowPyrLK(gray, prev_gray, p1, **lk_params)
-                st = np.logical_and(st0.flatten(),st1.flatten())
-                d = abs(p0-p0r).reshape(-1, 2).max(-1)
-                back_threshold = 10.00
-                #While we have enouth points reduce threshold
-                while sum(np.logical_and(d < (back_threshold/2), st)) >= 16 and back_threshold/2 > 0.01:
-                    back_threshold /= 2
-                status = d < back_threshold
-                status = np.logical_and(st,status)
+                #If try back check, which reduces speed, but improves quality
+                if doublecheck:
+                    p0r, st1, err = cv2.calcOpticalFlowPyrLK(gray, prev_gray, p1, **lk_params)
+                    st = np.logical_and(st0.flatten(),st1.flatten())
+                    d = abs(p0-p0r).reshape(-1, 2).max(-1)
+                    back_threshold = 10.00
+                    #While we have enouth points reduce threshold
+                    #Biger threshold better, but we still want more than 16 points
+                    while sum(np.logical_and(d < (back_threshold/2), st)) >= 16 and back_threshold/2 > 0.01:
+                        back_threshold /= 2
+                    status = d < back_threshold
+                    status = np.logical_and(st,status)
+                else:
+                    #Hack need real way!
+                    back_threshold = 0.02
+                    d = abs(p0).reshape(-1, 2).max(-1)
+                    status = True
+                    status = np.logical_and(st0.flatten(),status)
                 p1 = p1[status].copy()
                 p0 = p0[status].copy()
-                #Not enougth points
+
+
+                #If not enougth points
                 if len(p0) < 4:
                     p0 = None
                     diff_2d.append(None)
                 else:
-                    #Biger threshold better, but we still want more than 8 points
                     #print str(quality) + " "+str(sum(st)) + " " + str(len(p0)) +  " " + str(back_threshold)
                     homography, mask = cv2.findHomography(p1, p0, cv2.RANSAC)
                     quality = min(1, 0.02/back_threshold) * min(len(p0)/16, 1)
+                    quality *= mask.sum()/mask.size
+
                     #quality *= min(1,(float(sum(mask))/len(mask)*10)
                     diff_2d.append((quality,homography))
                     #Predicted points in new frame moved
@@ -147,8 +165,8 @@ class RegisterImagesLK2D(RegisiterImagesInterface):
         return diff_2d
 registered_methods["LK"] = RegisterImagesLK2D
 
-class RegisterImagesDetect(RegisiterImagesInterface):
-    def getDiff(self, method="LK-SIFT", fmask=None, quality = 0.6, comp=True):
+class RegisterImagesDetect(RegisterImagesInterface):
+    def getDiff(self, method="LK-SIFT", fmask=None, quality = 0.8, comp=True):
         methods= method.split("-")
         fmask = None
         old_rez = None

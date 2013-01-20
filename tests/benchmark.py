@@ -53,9 +53,9 @@ class Benchmark(object):
 
 b = Benchmark()
 retval = []
-for frame_size in [(250, 250), (500, 500), (1000,1000)]:
+for frame_size in [(1000,1000)]:
     b = Benchmark(frame_size=frame_size)
-    for method in ["LK-SIFT", "LK-SURF", "LK", "SIFT", "SURF"]:
+    for method in ["LK", "LK-SIFT", "LK-SURF", "SIFT", "SURF"]:
         print "Calculating for method " + method + str(frame_size)
         cProfile.runctx("retval = b.bench_method('%s')" % method, locals(), globals(), "/tmp/bench")
         print "returned " + str(retval)
