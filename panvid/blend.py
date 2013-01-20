@@ -1,9 +1,12 @@
 import cv2
+import logging
 import numpy as np
 
 
 class BlendInterface():
     def __init__(self, stream):
+        self._log = logging.getLogger(__name__)
+        self._log.info("Blender created")
         self._stream = stream
         #First frame as base
         self._pano = stream.getFrame()
@@ -31,6 +34,15 @@ class BlendInterface():
             self.blendNext(data)
             if prev:
                self.prevPano()
+
+    def merge(self, toImg, fromImg, over=True):
+        """ toImg size should be equal to fromImg"""
+        if over:
+            toImg = fromImg
+        else:
+            for i in xrange(fromImg.size):
+                toImg.flat[i] = max(toImg.flat[i],fromImg.flat[i])
+
 
 class BlendOverlay2D(BlendInterface):
     def blendNext(self, shift):
@@ -61,8 +73,8 @@ class BlendOverlay2D(BlendInterface):
             print add
             #First and add boundaries that new image will fit
             self._pano = cv2.copyMakeBorder(self._pano, *add, borderType=cv2.BORDER_CONSTANT)
-            print shift
-            self._pano[shift[0]:shift[0]+h, shift[1]:shift[1]+w] = image
+
+            self.merge(self._pano[shift[0]:shift[0]+h, shift[1]:shift[1]+w],image,over=true)
             #If moved shift changed
             self._data = shift
 
@@ -77,9 +89,9 @@ class BlendOverlayHomo(BlendInterface):
             self._stream.skipFrames(1)
         else:
             if self._data is None:
-                self._data = homo
+                self._data = homo[1]
             else:
-                self._data = np.dot(self._data, homo)
+                self._data = np.dot(self._data, homo[1])
             homography = self._data
             image2 = self._stream.getFrame()
             image1 = self._pano
@@ -93,9 +105,7 @@ class BlendOverlayHomo(BlendInterface):
             p = np.concatenate((p1, p2), axis=1)
 
             ## Calculate translation and size of output bitmap
-            print p
             t = -p.min(1)
-            print t
             s = np.ceil(p.max(1) + t).astype(np.int32)
             t = (t[0,0], t[1,0])
             # hack with max, due to 1px miscal
@@ -109,7 +119,7 @@ class BlendOverlayHomo(BlendInterface):
             ## Warp second image to fit the first
             pano = cv2.warpPerspective(image2, homography, s, flags=cv2.INTER_CUBIC)
             self.prevPano(window="Debug", image=pano)
-            pano[t[1]:h1+t[1], t[0]:w1+t[0]] = image1
+            self.merge(pano[t[1]:h1+t[1], t[0]:w1+t[0]], image1, False)
 
             self._pano = pano
             self._data = homography
