@@ -45,8 +45,11 @@ InputRegister["Simple video"] = (VideoInput, "video.glade")
 class VideoInputSkip(VideoInput):
     def __init__(self, url, bound=0, skip=0, start=0):
         VideoInput.__init__(self, url)
-        self._bound = bound
-        self._skip = skip
+        self._bound = int(bound)
+        self._skip = int(skip)
+        self.skipFrames(int(start))
+        self._start = int(start)
+
     def getFrame(self):
         if self._framenum > self._bound and self._bound is not 0:
             return None
@@ -59,7 +62,7 @@ class VideoInputSkip(VideoInput):
             return None
 
     def getClone(self):
-        return VideoInputSkip(self._url, self._bound, self._skip)
+        return VideoInputSkip(self._url, self._bound, self._skip, self._start)
 
 InputRegister["Video with options"] = (VideoInputSkip, "videoskip.glade")
 
@@ -84,4 +87,4 @@ class ImageInput(StreamInput):
     def getClone(self):
         return ImageInput(self._org_img_list)
 
-InputRegister["Image list"] = (ImageInput, "image.glade")
+#InputRegister["Image list"] = (ImageInput, "image.glade")

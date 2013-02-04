@@ -27,7 +27,7 @@ class Benchmark(object):
 
     def bench_method(self, method="SIFT"):
         register = RegisterImagesDetect(VideoInput(self.vidpath))
-        pred_path = register.getDiff2D(method)
+        pred_path = register.getDiff(method)
         diff = (0,0)
         rdiff = (0,0)
         drift = (0,0)
@@ -35,7 +35,7 @@ class Benchmark(object):
         badpoints = 0
         for (p,r) in zip(pred_path, self.npath):
             if p is not None:
-                q, p = p
+                p = p.get_naive2D
                 diff = (diff[0] + abs(p[0] - r[0]),
                         diff[1]+  abs(p[1] - r[1]))
                 rdiff = (rdiff[0] + abs(round(p[0]) - r[0]),

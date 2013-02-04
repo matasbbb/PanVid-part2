@@ -2,6 +2,34 @@ import cv2
 import numpy as np
 
 
+class DataPoint():
+    def __init__(self, method, quality=0, homo=None):
+        self._method = method
+        self._quality = quality
+        self._homo = homo
+        if homo is None:
+            self._quality = 0
+
+    def get_homo(self):
+        return self._homo
+
+    def get_naive2D(self):
+        return (self._homo[1][2],self._homo[0][2])
+
+    def get_quality(self):
+        return self._quality
+
+    def get_better_by_quality(self, datapoint):
+        if self._quality > datapoint.get_quality():
+            return self
+        else:
+            return datapoint
+
+    def __str__(self):
+        return "Method: " + str(self._method) + " Quality: " + str(self._quality)
+
+
+
 class FeatureExtractor(object):
     def __init__(self, method=None):
         self._detector = cv2.FeatureDetector_create(method)
@@ -16,12 +44,25 @@ class FeatureExtractor(object):
         return ret
 
 class MatchDesciptorsFlann(object):
-    def __init__(self, desc):
-        FLANN_INDEX_KDTREE = 1
-        self._flann = cv2.flann_Index(desc,
-                {'algorithm': FLANN_INDEX_KDTREE, 'trees': 4})
+    FLANN_INDEX_LININD = 0
+    FLANN_INDEX_KDTREE = 1
+
+    def __init__(self, desc, method):
+        method_to_option = {"SURF":1, "SIFT":1,"FAST":1,"ORB":0}
+        self._option  = method_to_option[method]
+        if self._option == self.FLANN_INDEX_LININD:
+            nd = desc.view(np.float32).copy()
+            desc = nd
+
+        options = [{'algorithm': self.FLANN_INDEX_LININD},
+                   {'algorithm': self.FLANN_INDEX_KDTREE, 'trees': 4}]
+        self._flann = cv2.flann_Index(desc, options[method_to_option[method]])
 
     def getPairs(self, desc, r_threshold = 0.6):
+        if self._option == self.FLANN_INDEX_LININD:
+            nd = desc.view(np.float32).copy()
+            desc = nd
+
         (idx2, dist) = self._flann.knnSearch(desc, 2, params={})
         mask = dist[:,0] / dist[:,1] < r_threshold
         idx1 = np.arange(len(desc))
@@ -39,17 +80,6 @@ class RegisterImagesInterface():
         print "Not implemented getDiff!"
         return []
 
-    def getDiff2D(self, *args):
-        homo = self.getDiff(*args);
-        rez = []
-        for data in homo:
-            if data is not None:
-                q, data = data
-                rez.append((q,(data[1][2],data[0][2])))
-            else:
-                rez.append(None)
-        return rez
-
 
 class RegisterImagesStandart2D(RegisterImagesInterface):
     def getDiff(self, method="SURF", fmask=None):
@@ -64,7 +94,7 @@ class RegisterImagesStandart2D(RegisterImagesInterface):
                 (k1, d1) = extractor.getFeatures(lastframe)
                 (k2, d2) = extractor.getFeatures(frame)
                 #Match them
-                flann = MatchDesciptorsFlann(d2)
+                flann = MatchDesciptorsFlann(d2, method)
                 match = flann.getPairs(d1)
                 c1 = np.array([k1[e].pt for e in match[...,0]], 'float32')
                 c2 = np.array([k2[e].pt for e in match[...,1]], 'float32')
@@ -74,11 +104,11 @@ class RegisterImagesStandart2D(RegisterImagesInterface):
                     #Asume if features matched it means they are good
                     quality = min(len(c2)/16,1)
                     #quality *= min(1,float(sum(mask))/len(mask) * 10)
-                    diff_2d.append((quality,homography))
+                    diff_2d.append(DataPoint(method,quality,homography))
                 else:
-                    diff_2d.append(None)
+                    diff_2d.append(DataPoint(method))
             else:
-                diff_2d.append(None)
+                diff_2d.append(DataPoint(method))
             lastframe = frame
             frame = self._stream.getFrame()
             frame_idx += 1
@@ -87,10 +117,11 @@ class RegisterImagesStandart2D(RegisterImagesInterface):
 registered_methods["SURF"] = RegisterImagesStandart2D
 registered_methods["SIFT"] = RegisterImagesStandart2D
 registered_methods["FAST"] = RegisterImagesStandart2D
+registered_methods["ORB"] = RegisterImagesStandart2D
 
 feature_params = dict( maxCorners = 100,
                        qualityLevel = 0.05,
-                       minDistance = 40,
+                       minDistance = 50,
                        blockSize = 23,
                        useHarrisDetector = True)
 
@@ -145,7 +176,7 @@ class RegisterImagesLK2D(RegisterImagesInterface):
                 #If not enougth points
                 if len(p0) < 4:
                     p0 = None
-                    diff_2d.append(None)
+                    diff_2d.append(DataPoint(method))
                 else:
                     #print str(quality) + " "+str(sum(st)) + " " + str(len(p0)) +  " " + str(back_threshold)
                     homography, mask = cv2.findHomography(p1, p0, cv2.RANSAC)
@@ -153,11 +184,11 @@ class RegisterImagesLK2D(RegisterImagesInterface):
                     quality *= mask.sum()/mask.size
 
                     #quality *= min(1,(float(sum(mask))/len(mask)*10)
-                    diff_2d.append((quality,homography))
+                    diff_2d.append(DataPoint(method,quality,homography))
                     #Predicted points in new frame moved
                     p0 = p1
             else:
-                diff_2d.append(None)
+                diff_2d.append(DataPoint(method))
 
             prev_frame = frame
             frame = self._stream.getFrame()
@@ -174,12 +205,7 @@ class RegisterImagesDetect(RegisterImagesInterface):
             if old_rez is not None:
                 fmask = []
                 for d in rez:
-                    if d is not None:
-                        q,r = d
-                        fmask.append(q < quality)
-                    else:
-                        #If not found try with new method
-                        fmask.append(True)
+                    fmask.append(d.get_quality() < quality)
 
             if not registered_methods.has_key(m):
                 print "Not implemented " + m
@@ -192,12 +218,13 @@ class RegisterImagesDetect(RegisterImagesInterface):
                 for old_d, d in zip(old_rez,rez):
                     # Get recent if we dont want to compare ant it is not None
                     # And if we want to compare and both are not None
-                    if (not comp and d is not None) \
-                       or (comp and d is not None and old_d is not None and d[0] > old_d[0])\
-                       or (comp and old_d is None):
-                        new_rez.append(d)
+                    if comp:
+                        new_rez.append(d.get_better_by_quality(old_d))
                     else:
-                        new_rez.append(old_d)
+                        if d.get_homo() is not None:
+                            new_rez.append(d)
+                        else:
+                            new_rez.append(old_d)
                 rez = new_rez
 
             old_rez = rez

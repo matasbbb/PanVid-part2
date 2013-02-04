@@ -2,7 +2,8 @@
 import gi.repository
 from gi.repository import Gtk
 from panvid.input import InputRegister
-from panvid.predict import registered_methods
+from panvid.blend import BlendRegister
+from panvid.predict import registered_methods, RegisterImagesDetect
 class MainAppWindow():
     def __init__(self):
         builder = Gtk.Builder()
@@ -13,9 +14,11 @@ class MainAppWindow():
 
         self.input_init()
         self.register_init()
-
+        self.blend_init()
         window = builder.get_object("window1")
+        window.set_title("PanVid")
         window.show_all()
+        self.window = window
 
     def window_close(self, *args):
         Gtk.main_quit(*args)
@@ -61,6 +64,7 @@ class MainAppWindow():
         self._inputOptions[self.get_name(widget)] = self.get_value(widget)
 
     def register_init(self):
+        self._predicted = None
         self._registerOptions = {}
         m = self._builder.get_object("method1")
         for me in registered_methods.keys():
@@ -77,10 +81,78 @@ class MainAppWindow():
 
     def register_frames(self, widget):
         self._register_stat.set_text("Started registering")
-        print self._inputOptions
         if self._inputclass is not None:
             stream = self._inputclass(**self._inputOptions)
+            self.stream = stream
+        if stream is None:
+            self.error_message("Please select file")
+        else:
+            kargs = self._registerOptions
+            if kargs.has_key("method1"):
+                kargs["method"] = kargs["method1"]
+                kargs.pop("method1")
+            else:
+                kargs["method"] = ""
 
+            if kargs.has_key("method2") and len(kargs["method2"]) > 0:
+                if len(kargs["method"]) > 0:
+                    kargs["method"] += "-" + kargs["method2"]
+                else:
+                    kargs["method"] = kargs["method2"]
+                kargs.pop("method2")
+            predictor = RegisterImagesDetect(stream)
+            self._predicted = predictor.getDiff(**kargs)
+            if self._predicted is not None:
+                self._register_stat.set_text("Homographies predicted")
+
+    def blend_init(self):
+        self._blend_register = BlendRegister
+        self._blendCombo = self._builder.get_object("blend_type")
+        self._blendBox = self._builder.get_object("blend_box")
+        self._blendWidget = None
+        for name in self._blend_register.keys():
+            self._blendCombo.append_text(name)
+        self.blend_type_changed(self._blendCombo)
+
+    def blend_type_changed(self, wid):
+        if wid.get_active_text() is None:
+            return
+        (clas, fileN) = self._blend_register[wid.get_active_text()]
+        if self._blendWidget is not None:
+            self._blendBox.remove(self._inputWidget)
+        if fileN is not None:
+            tmp_builder = Gtk.Builder()
+            tmp_builder.add_from_file("gui/blend/" + fileN)
+            tmp_builder.connect_signals(self)
+            self._blendWidget = tmp_builder.get_object("box1")
+            self._blendBox.add(self._inputWidget)
+        self._blendOptions = {}
+        self._blendclass = clas
+
+    def blend_option_changed(self, widget):
+        self._blendOptions[self.get_name(widget)] = self.get_value(widget)
+
+    def blend_image(self, wid):
+        if self._predicted is None:
+            self.error_message("Please register images")
+            return
+        stream = self.stream.getClone()
+        self.blender = self._blendclass(stream)
+        self.setParams(**self._blendOptions)
+        self.blender.blendNextN(self.predicted)
+
+
+    def preview_image(self, wid):
+        self.blender.prevPano()
+
+    def error_message(self, message=""):
+        a = Gtk.MessageDialog(self.window,
+                   Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                   Gtk.MessageType.ERROR,
+                   Gtk.ButtonsType.CLOSE,
+                   message)
+        a.connect("response", lambda wid,*args: wid.destroy())
+        a.run()
 
 app = MainAppWindow()
 Gtk.main()

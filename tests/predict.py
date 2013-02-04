@@ -12,7 +12,7 @@ class TestRegisterImages(unittest.TestCase):
         img = cv2.imread("tests/samples/IMG_8686.JPG")
         gen = PathGenerator(10, img, None, frame_size)
         path = gen.getSweapPath(2000, False)
-        spshpath = PathFilters(path).applySpeedChange(speed=30).applyShake().getPath()
+        spshpath = PathFilters(path).applySpeedChange(speed=30).applyShake().fixPath(frame_size,(img.shape[0],img.shape[1])).getPath()
         filt = VideoEffects()
         filt.noise()
         vidgen = VideoSimpleGenerator(spshpath, img)
@@ -27,18 +27,18 @@ class TestRegisterImages(unittest.TestCase):
         for m in ["LK", "LK-SURF", "SURF"]:
             print m
             register = RegisterImagesDetect(inp.getClone())
-            pred_path = register.getDiff2D(m)
+            pred_path = register.getDiff(m)
             diff = (0,0)
             drift = (0,0)
             sqdiff = 0
             self.assertEqual(len(pred_path), len(npath))
-            for (p,r) in zip(pred_path, npath):
-                if p is not None and r is not None:
-                    q, p = p
+            for (pd,r) in zip(pred_path, npath):
+                if pd is not None and r is not None:
+                    p = pd.get_naive2D()
                     diff = (diff[0] + abs(p[0] - r[0]), diff[1]+  abs(p[1] - r[1]))
                     drift = (drift[0] + (p[0] - r[0]), drift[1] + (p[1] - r[1]))
                     sqdiff += (p[0] - r[0])**2 + (p[1] - r[1])**2
-                print str(p) + str(r) + " " + str(q)
+                print str(p) + str(r) + " " + str(pd)
             print diff
             print drift
             print ""
@@ -57,16 +57,16 @@ class TestRegisterImages(unittest.TestCase):
             cor = np.array([[0,0],[0,1000],[1000,0],[1000,1000]],dtype='float32')
             cor = np.array([cor])
             for (p,r) in zip(pred_path, npath):
-                if p is not None and r is not None:
-                    q, p = p
-                    q1, r = r
+                if p.get_homo() is not None and r.get_homo() is not None:
+                    ph = p.get_homo()
+                    rh = r.get_homo()
                     df = 0
-                    des0 = cv2.perspectiveTransform(cor,p)
-                    des1 = cv2.perspectiveTransform(cor,r)
+                    des0 = cv2.perspectiveTransform(cor,ph)
+                    des1 = cv2.perspectiveTransform(cor,rh)
 
                     for p1,p2 in zip(des0[0],des1[0]):
                         df += abs(p1[0]-p2[0]) + abs(p1[1]-p2[1])
-                    print (df,q,q1)
+                    print (df, str(p))
                     diff += df
                 else:
                     print "None!"
