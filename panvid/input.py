@@ -1,13 +1,15 @@
 import cv2
 import numpy as np
 
-
 class StreamInput(object):
     def __init__(self):
         self._framenum = 0
 
     def skipFrames(self, n):
         self._framenum += n
+
+    def getProgress(self):
+        return 0
 
 InputRegister = {}
 
@@ -31,6 +33,12 @@ class VideoInput(StreamInput):
         else:
             return None
 
+    def getProgress(self):
+        frame_count = self._capt.get(cv2.cv.CV_CAP_PROP_FRAME_COUNT)
+        curr_frame = self._capt.get(cv2.cv.CV_CAP_PROP_POS_FRAMES)
+        return (frame_count, curr_frame)
+
+
     def getAlphaFrame(self):
         f = self.getFrame()
         if f is not None:
@@ -40,9 +48,10 @@ class VideoInput(StreamInput):
     def getClone(self):
         return VideoInput(self._url)
 
+
 InputRegister["Simple video"] = (VideoInput, "video.glade")
 
-class VideoInputSkip(VideoInput):
+class VideoInputAdvanced(VideoInput):
     def __init__(self, url, bound=0, skip=0, start=0):
         VideoInput.__init__(self, url)
         self._bound = int(bound)
@@ -62,9 +71,15 @@ class VideoInputSkip(VideoInput):
             return None
 
     def getClone(self):
-        return VideoInputSkip(self._url, self._bound, self._skip, self._start)
+        return VideoInputAdvanced(self._url, self._bound, self._skip, self._start)
 
-InputRegister["Video with options"] = (VideoInputSkip, "videoskip.glade")
+    def getProgress(self):
+        if self._bound is 0:
+            return super(VideoInputAdvanced, self).getProgress()
+        else:
+            return (self._bound, self._framenum)
+
+InputRegister["Video with options"] = (VideoInputAdvanced, "videoskip.glade")
 
 class ImageInput(StreamInput):
     def __init__(self, img_list):
@@ -87,4 +102,6 @@ class ImageInput(StreamInput):
     def getClone(self):
         return ImageInput(self._org_img_list)
 
+    def getProgresS(self):
+        return (len(self._org_img_list),len(self._img_list))
 #InputRegister["Image list"] = (ImageInput, "image.glade")

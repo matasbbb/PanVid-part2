@@ -44,7 +44,7 @@ class TestRegisterImages(unittest.TestCase):
             print ""
 
     def test_getCompWithSurfForLive(self):
-        inp = VideoInputSkip("tests/samples/DSC_0004.MOV", 40, 1)
+        inp = VideoInputAdvanced("tests/samples/DSC_0004.MOV", 40, 1)
         register = RegisterImagesDetect(inp.getClone())
         npath = register.getDiff("SURF")
 

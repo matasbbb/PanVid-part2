@@ -1,8 +1,10 @@
+from __future__ import print_function
 from panvid.generateVideo import *
 from panvid.generatePath import *
 from panvid.predict import *
 from panvid.input import *
 from panvid.pyprof2calltree import *
+from panvid.blend import *
 import cv2
 import cProfile
 import pstats
@@ -32,7 +34,7 @@ def create_cvs(data):
     ret_string = ""
     for r in rows.keys():
         ret_string += r + ", " + ", ".join(map(str,rows[r])) + "\n"
-    print ret_string
+    print(ret_string)
 
 
 class Benchmark(object):
@@ -40,27 +42,36 @@ class Benchmark(object):
         self.vidpath = vidpath
 
     def bench_method(self, method="SIFT", skip=0):
-        stream = VideoInputSkip(self.vidpath,skip=skip)
+        stream = VideoInputAdvanced(self.vidpath,skip=skip, bound=400, start=99)
         register = RegisterImagesDetect(stream)
-        pred_path = register.getDiff(method, quality=0.75)
+        progressCB = lambda *args: print (args)
+        pred_path = register.getDiff(method, quality=0.80, progressCB=progressCB)
         rez = len(pred_path) * 1.0
         for p in pred_path:
-            rez -= p.get_quality() < 0.75
+            rez -= p.get_quality() < 0.80
         rez = rez / len(pred_path)
-        return rez
+        return pred_path
 
 b = Benchmark()
 retval = []
-for vidpath in ["tests/samples/MVI_0017.AVI"]:#,"tests/samples/DSC_0004.MOV"]:
+for vidpath in ["tests/samples/DSC_0011.MOV"]:#,"tests/samples/MVI_0017.AVI"]:#,"tests/samples/DSC_0004.MOV"]:
     b = Benchmark(vidpath)
     alldata = {}
-    for g in [("LK",0), ("LK-SURF",0), ("SURF",10)]:
+    i = 0
+    for g in [("LK",1), ("LK-SURF",1), ("SURF",20)]:
+        i += 1
         (method, skip) = g
-        print "Calculating for method " + method
-        print "Taking every " + str(skip + 1) +" frame"
-        print "For video " + vidpath
+        print ("Calculating for method " + method)
+        print ("Taking every " + str(skip + 1) +" frame")
+        print ("For video " + vidpath)
         cProfile.runctx("retval = b.bench_method('%s', %d)" % g, locals(), globals(), "/tmp/bench")
-        print "returned " + str(retval)
+        #print "returned " + str(retval)
+        if False:
+            stream = VideoInputSkip(vidpath,skip=skip)
+            blend = BlendOverlay2D(stream)
+            blend.blendNextN(retval, True, False)
+            cv2.imwrite("/tmp/"+ method + str(i)+ ".jpg",blend.getPano())
+
         p = pstats.Stats("/tmp/bench")
         #p.strip_dirs().sort_stats("time").print_stats(10)
         data_dict = {}
@@ -73,4 +84,4 @@ for vidpath in ["tests/samples/MVI_0017.AVI"]:#,"tests/samples/DSC_0004.MOV"]:
                 data_dict[name] = en.totaltime
         alldata[method] = data_dict
 
-print create_cvs(alldata)
+print (create_cvs(alldata))

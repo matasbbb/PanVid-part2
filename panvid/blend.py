@@ -5,7 +5,7 @@ import PIL.Image as PImg
 import math
 
 BlendRegister = {}
-class BlendInterface():
+class BlendImages():
     def __init__(self, stream):
         self._log = logging.getLogger(__name__)
         self._log.info("Blender created")
@@ -14,7 +14,7 @@ class BlendInterface():
         self._pano = stream.getFrame()
         self._window = []
         self._data = None
-        self.prevPano()
+        #self.prevPano()
 
     def setParams(self):
         return
@@ -49,7 +49,7 @@ class BlendInterface():
                 toImg.flat[i] = max(toImg.flat[i],fromImg.flat[i])
 
 
-class BlendOverlay2D(BlendInterface):
+class BlendOverlay2D(BlendImages):
     def blendNext(self, dataPoint):
         if dataPoint is None:
             print "Image skiped, expect artifacts"
@@ -84,9 +84,9 @@ class BlendOverlay2D(BlendInterface):
             self._data = shift
 
 BlendRegister["Overlay by shift"] = (BlendOverlay2D, None)
-class BlendOverlayHomo(BlendInterface):
+class BlendOverlayHomo(BlendImages):
     def __init__(self, stream):
-        BlendInterface.__init__(self, stream)
+        BlendImages.__init__(self, stream)
         #self._pano = cv2.cvtColor(self._pano, cv2.cv.CV_BGR2BGRA)
 
     def blendNext(self, datapoint):
@@ -134,21 +134,25 @@ class BlendOverlayHomo(BlendInterface):
 
 BlendRegister["Overlay by homographies"] = (BlendOverlayHomo, None)
 
-class BlendOverlayHomoWeight(BlendInterface):
-    def __init__(self, stream):
-        BlendInterface.__init__(self, stream)
-        self._pano = cv2.cvtColor(self._pano, cv2.cv.CV_BGR2BGRA)
-        self._masks = {}
-        self.l = "h_step"
-        self.blur = None
+class BlendOverlayHomoWeight(BlendImages):
     #Functions which map from two arguments [0,1] to [0,1]
     posible_f={
         "radial":lambda x,y: math.sqrt(x**2+y**2),
         "h_inv_sqr":lambda x,y: 1-(1-abs(y))**2,
         "nasty_step":lambda x,y: 1-(1.1-math.sqrt((x/4)**2+y**2))**20,
-        "h_step":lambda x,y: y>0.2
+        "h_step":lambda x,y: y>0.2 and y < 0.8
     }
-    def setParams(l=posible_f["h_step"], blur=False):
+
+    def __init__(self, stream):
+        BlendImages.__init__(self, stream)
+        self._pano = cv2.cvtColor(self._pano, cv2.cv.CV_BGR2BGRA)
+        self._masks = {}
+        self.l = self.posible_f["h_step"]
+        self.blur = (7,7)
+
+    def setParams(self, l=posible_f["h_step"], blur=None):
+        if self.posible_f.has_key(l):
+            l = posible_f(l)
         self.l = l
         self.blur = b
 
@@ -163,8 +167,10 @@ class BlendOverlayHomoWeight(BlendInterface):
                     r = self.l(1.0*x/size[0]-0.5,1.0*y/size[1]-0.5)
                     mask[x,y] = min(max(0, 255 - int(255*r)),255)
             if self.blur is not None:
-                mask = cv2.blur(mask, blur)
+                mask = cv2.GaussianBlur(mask, self.blur, -1,
+                        borderType=cv2.BORDER_CONSTANT)
             self._masks[size] = mask
+            self.prevPano(wait=False, window="alpha", image=mask)
             return mask
 
     def blendNext(self, datapoint):
@@ -211,15 +217,15 @@ class BlendOverlayHomoWeight(BlendInterface):
             #Now we create same size images
             image1b = np.zeros((pano.shape[0], pano.shape[1],4),np.uint8)
             image1b[t[1]:h1+t[1], t[0]:w1+t[0]] = image1
-            self.prevPano(window="Alpha old", image=image1b[:,:,3])
-            self.prevPano(window="Alpha over", image=pano[:,:,3])
+            #self.prevPano(window="Alpha old", image=image1b[:,:,3])
+            #self.prevPano(window="Alpha over", image=pano[:,:,3])
             #new alpha just map where we have pixels
             newalpha = (pano[:,:,3]/2) + (image1b[:,:,3] != 0) * 128
             #If in old panorama there are now old pixels just use from new
             blendalpha = (pano[:,:,3] * (image1b[:,:,3] != 0)) + (image1b[:,:,3] == 0)*255
             #blendalpha = cv2.blur(blendalpha, (20,20))
             pano[:,:,3] = blendalpha
-            self.prevPano(window="Alpha over", image=pano[:,:,3])
+            #self.prevPano(window="Alpha over", image=pano[:,:,3])
             #Merge using pil
             img = PImg.fromarray(image1b)
             pano1 = PImg.fromarray(pano)

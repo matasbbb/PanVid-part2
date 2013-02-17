@@ -45,6 +45,9 @@
                   <placeholder/>
                 </child>
               </object>
+              <packing>
+                <property name="tab_expand">True</property>
+              </packing>
             </child>
             <child type="tab">
               <object class="GtkLabel" id="label1">
@@ -60,8 +63,12 @@
               <object class="GtkGrid" id="grid1">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
+                <property name="hexpand">True</property>
+                <property name="vexpand">True</property>
+                <property name="border_width">3</property>
                 <property name="row_spacing">3</property>
                 <property name="column_spacing">3</property>
+                <property name="row_homogeneous">True</property>
                 <child>
                   <object class="GtkLabel" id="label4">
                     <property name="visible">True</property>
@@ -205,20 +212,29 @@
                   </object>
                   <packing>
                     <property name="left_attach">0</property>
-                    <property name="top_attach">5</property>
+                    <property name="top_attach">4</property>
                     <property name="width">1</property>
                     <property name="height">1</property>
                   </packing>
                 </child>
                 <child>
-                  <placeholder/>
-                </child>
-                <child>
-                  <placeholder/>
+                  <object class="GtkProgressBar" id="register_progress">
+                    <property name="visible">True</property>
+                    <property name="can_focus">False</property>
+                    <property name="hexpand">True</property>
+                    <property name="show_text">True</property>
+                  </object>
+                  <packing>
+                    <property name="left_attach">0</property>
+                    <property name="top_attach">5</property>
+                    <property name="width">2</property>
+                    <property name="height">1</property>
+                  </packing>
                 </child>
               </object>
               <packing>
                 <property name="position">1</property>
+                <property name="tab_expand">True</property>
               </packing>
             </child>
             <child type="tab">

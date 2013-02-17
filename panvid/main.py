@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import gi.repository
-from gi.repository import Gtk
+import threading
+from gi.repository import Gtk, Gdk, GObject
 from panvid.input import InputRegister
 from panvid.blend import BlendRegister
 from panvid.predict import registered_methods, RegisterImagesDetect
@@ -75,12 +76,14 @@ class MainAppWindow():
             m.append_text(me)
 
         self._register_stat = self._builder.get_object("statistic")
+        self._register_progress = self._builder.get_object("register_progress")
 
     def register_option_changed(self, widget):
         self._registerOptions[self.get_name(widget)] = self.get_value(widget)
 
     def register_frames(self, widget):
         self._register_stat.set_text("Started registering")
+        widget.set_sensitive(False)
         if self._inputclass is not None:
             stream = self._inputclass(**self._inputOptions)
             self.stream = stream
@@ -99,11 +102,27 @@ class MainAppWindow():
                     kargs["method"] += "-" + kargs["method2"]
                 else:
                     kargs["method"] = kargs["method2"]
+            if kargs.has_key("method2"):
                 kargs.pop("method2")
             predictor = RegisterImagesDetect(stream)
+            kargs["doneCB"] = lambda rez: self.done_registering(widget, rez)
+            kargs["progressCB"] = self.registering_progress
+            #t = threading.Thread(target=predictor.getDiff, kwargs=kargs)
+            #t.start()
             self._predicted = predictor.getDiff(**kargs)
             if self._predicted is not None:
                 self._register_stat.set_text("Homographies predicted")
+        widget.set_sensitive(True)
+    def done_registering(self, widget, rez):
+        if rez is not None:
+            self._predicted = rez
+            self._register_stat.set_text("Homographies predicted")
+        widget.set_sensitive(True)
+
+    def registering_progress(self, of=1, curr=0, nst=1, st=1):
+        self._register_progress.set_text("Stage %d/%d, Frame %d/%d"%(int(st), int(nst), int(curr),int(of)))
+        self._register_progress.set_fraction(min(max(1.*curr/of,0),1))
+        while Gtk.events_pending(): Gtk.main_iteration()
 
     def blend_init(self):
         self._blend_register = BlendRegister
@@ -132,18 +151,29 @@ class MainAppWindow():
     def blend_option_changed(self, widget):
         self._blendOptions[self.get_name(widget)] = self.get_value(widget)
 
-    def blend_image(self, wid):
+    def blend_image(self, wid, *args):
         if self._predicted is None:
             self.error_message("Please register images")
             return
         stream = self.stream.getClone()
         self.blender = self._blendclass(stream)
-        self.setParams(**self._blendOptions)
-        self.blender.blendNextN(self.predicted)
-
+        self.blender.setParams(**self._blendOptions)
+        self.blender.blendNextN(self._predicted)
 
     def preview_image(self, wid):
-        self.blender.prevPano()
+        self.prev_image(self.blender.getPano())
+
+    def prev_image(self, img):
+        image = Gtk.Image()
+        image.set_from_pixbuf(img)
+        a = Gtk.MessageDialog(self.window,
+                   Gtk.DialogFlags.DESTROY_WITH_PARENT,
+                   Gtk.MessageType.INFO,
+                   Gtk.ButtonsType.CLOSE,
+                   message)
+        a.set_image(image)
+        a.connect("response", lambda wid,*args: wid.destroy())
+        a.run()
 
     def error_message(self, message=""):
         a = Gtk.MessageDialog(self.window,
@@ -155,6 +185,8 @@ class MainAppWindow():
         a.run()
 
 app = MainAppWindow()
+GObject.threads_init(None)
+Gtk.init(None)
 Gtk.main()
 
 

@@ -1,4 +1,3 @@
-
 import unittest
 from panvid.generatePath import *
 from panvid.generateVideo import *
@@ -12,7 +11,7 @@ import cv2
 
 class TestHomography(unittest.TestCase):
     def test_homoFocalTest_realVid(self):
-        vidinput = VideoInputSkip("tests/samples/MVI_0017.AVI", 0, 10)
+        vidinput = VideoInputAdvanced("tests/samples/MVI_0017.AVI", 0, 10)
         register = RegisterImagesDetect(vidinput)
         homos = register.getDiff("LK-SURF")
         for h in homos:

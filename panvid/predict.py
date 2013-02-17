@@ -72,7 +72,7 @@ class MatchDesciptorsFlann(object):
 
 registered_methods = {}
 
-class RegisterImagesInterface():
+class RegisterImages():
     def __init__(self, stream):
         self._stream = stream
 
@@ -81,14 +81,21 @@ class RegisterImagesInterface():
         return []
 
 
-class RegisterImagesStandart2D(RegisterImagesInterface):
-    def getDiff(self, method="SURF", fmask=None):
+class RegisterImagesStandart(RegisterImages):
+    def getDiff(self, method="SURF", fmask=None, doneCB=None, progressCB=None):
         lastframe = self._stream.getFrame()
         frame = self._stream.getFrame()
         extractor = FeatureExtractor(method)
         diff_2d = []
         frame_idx = 0
         while frame is not None:
+            if progressCB is not None:
+                overall, curr = self._stream.getProgress()
+                if fmask is not None:
+                    overall = sum(fmask)
+                    curr = sum(fmask[:frame_idx])
+                progressCB(overall, curr)
+
             if fmask is None or fmask[frame_idx]:
                 #Find features
                 (k1, d1) = extractor.getFeatures(lastframe)
@@ -112,16 +119,18 @@ class RegisterImagesStandart2D(RegisterImagesInterface):
             lastframe = frame
             frame = self._stream.getFrame()
             frame_idx += 1
+        if doneCB is not None:
+            doneCB(diff_2d)
         return diff_2d
 
-registered_methods["SURF"] = RegisterImagesStandart2D
-registered_methods["SIFT"] = RegisterImagesStandart2D
-registered_methods["FAST"] = RegisterImagesStandart2D
-registered_methods["ORB"] = RegisterImagesStandart2D
+registered_methods["SURF"] = RegisterImagesStandart
+registered_methods["SIFT"] = RegisterImagesStandart
+#registered_methods["FAST"] = RegisterImagesStandart
+#registered_methods["ORB"] = RegisterImagesStandart
 
 feature_params = dict( maxCorners = 100,
                        qualityLevel = 0.05,
-                       minDistance = 50,
+                       minDistance = 40,
                        blockSize = 23,
                        useHarrisDetector = True)
 
@@ -129,15 +138,15 @@ lk_params = dict( winSize  = (23, 23),
                   maxLevel = 4,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 40, 0.005))
 
-class RegisterImagesLK2D(RegisterImagesInterface):
+class RegisterImagesLK(RegisterImages):
     def __init__(self, *args):
-        RegisterImagesInterface.__init__(self, *args)
+        RegisterImages.__init__(self, *args)
         #self.detector = lambda image: cv2.FeatureDetector_create("FAST").detect(image)
         self.detector = lambda image: cv2.goodFeaturesToTrack(image, **feature_params)
 
-    def getDiff(self, method="LK", fmask=None, doublecheck=False):
+    def getDiff(self, method="LK", fmask=None, doublecheck=False, doneCB=None, progressCB=None):
         if method != "LK":
-            print "Not implemented in RegisterImagesLK2D " + method
+            print "Not implemented in RegisterImagesLK " + method
             return None
         frame_idx = 0
         diff_2d = []
@@ -145,10 +154,17 @@ class RegisterImagesLK2D(RegisterImagesInterface):
         frame = self._stream.getFrame()
         p0 = None
         while frame is not None:
+            if progressCB is not None:
+                overall, curr = self._stream.getProgress()
+                if fmask is not None:
+                    overall = sum(fmask)
+                    curr = sum(fmask[:frame_idx])
+                progressCB(overall, curr)
+
             if fmask is None or fmask[frame_idx]:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
-                if p0 is None or frame_idx % 5 == 0 or len(p0) < 16:
+                if p0 is None or frame_idx % 20 == 0 or len(p0) < 32:
                     p0 = self.detector(prev_gray)
                 p1, st0, err = cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, **lk_params)
                 #If try back check, which reduces speed, but improves quality
@@ -188,30 +204,37 @@ class RegisterImagesLK2D(RegisterImagesInterface):
                     #Predicted points in new frame moved
                     p0 = p1
             else:
+                p0 = None
                 diff_2d.append(DataPoint(method))
 
             prev_frame = frame
             frame = self._stream.getFrame()
             frame_idx += 1
-        return diff_2d
-registered_methods["LK"] = RegisterImagesLK2D
 
-class RegisterImagesDetect(RegisterImagesInterface):
-    def getDiff(self, method="LK-SIFT", fmask=None, quality = 0.8, comp=True):
+        if doneCB is not None:
+            doneCB(diff_2d)
+        return diff_2d
+registered_methods["LK"] = RegisterImagesLK
+
+class RegisterImagesDetect(RegisterImages):
+    def getDiff(self, method="LK-SIFT", fmask=None, quality = 0.8, comp=True, doneCB=None, progressCB=None):
         methods= method.split("-")
         fmask = None
         old_rez = None
         for m in methods:
+            progressCB_pass = None
+            if progressCB is not None:
+                progressCB_pass = lambda overall, curr: progressCB (overall, \
+                        curr, len(methods), methods.index(m) + 1)
             if old_rez is not None:
                 fmask = []
                 for d in rez:
                     fmask.append(d.get_quality() < quality)
-
             if not registered_methods.has_key(m):
                 print "Not implemented " + m
                 return None
             reg = registered_methods[m](self._stream.getClone())
-            rez = reg.getDiff(m, fmask)
+            rez = reg.getDiff(m, fmask, progressCB=progressCB_pass)
             #If we have old rezults merge
             if old_rez is not None:
                 new_rez = []
@@ -228,4 +251,6 @@ class RegisterImagesDetect(RegisterImagesInterface):
                 rez = new_rez
 
             old_rez = rez
+        if doneCB is not None:
+            doneCB(old_rez)
         return old_rez
