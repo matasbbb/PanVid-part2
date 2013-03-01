@@ -33,7 +33,7 @@ class VideoEffects(object):
         self._toUse.append(lambda frame: self._noise(noise_type, frame, parm1, parm2))
 
     def _noise(self, noise_type, frame, parm1, parm2):
-        rand = cv2.cv.CreateImage((frame.shape[0], frame.shape[1]), 8, frame.shape[2])
+        rand = cv2.cv.CreateImage((frame.shape[1], frame.shape[0]), 8, frame.shape[2])
         cv2.cv.RandArr(cv2.cv.RNG(round(time.time())), rand, cv2.cv.CV_RAND_NORMAL, parm1, parm2)
         frame = cv2.cv.fromarray(frame)
         cv2.cv.Add(rand, frame, frame)
@@ -53,7 +53,7 @@ class VideoSimpleGenerator(object):
 
     def save(self, url, frame_size, fourcc=cv2.cv.FOURCC("P","I","M","1"),
              fps=30, filt=None):
-        writer = cv2.VideoWriter(url, fourcc, fps, frame_size)
+        writer = cv2.VideoWriter(url, fourcc, fps, (frame_size[1], frame_size[0]))
         #Always post crop to wanted size
         if filt is None:
             filt = VideoEffects()
@@ -66,9 +66,8 @@ class VideoSimpleGenerator(object):
             prefilt.crop(frame_size, pos, filt.getMult())
             frame = prefilt.apply(self._image)
             frame = filt.apply(frame)
-            #x = round(frame[0] - frame_size[0]/2)
-            #y = round(frame[1] - frame_size[1]/2)
-            #frame = self._image[x:x+frame_size[0],y:y+frame_size[1]].copy()
+            #x = round(frame[0] - frame_size[0]/2
+            #y = round(frame[1] - frame_size[1]/2)            #frame = self._image[x:x+frame_size[0],y:y+frame_size[1]].copy()
             #if filt is not None:
             #    frame = filt.apply(frame)
             writer.write(frame)

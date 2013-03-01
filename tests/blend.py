@@ -41,7 +41,7 @@ class TestBlend(unittest.TestCase):
         blend.blendNextN(self.synteticDataPoints, True, False)
         blend.prevPano()
 
-    def non_test_overlay2d_realVid(self):
+    def test_overlay2d_realVid(self):
         blend = BlendOverlay2D(self.realInput.getClone())
         blend.blendNextN(self.realDataPoints, prev=True, wait=False)
         blend.prevPano(wait=False, window="2D Real")

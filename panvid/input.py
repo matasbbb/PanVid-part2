@@ -74,10 +74,11 @@ class VideoInputAdvanced(VideoInput):
         return VideoInputAdvanced(self._url, self._bound, self._skip, self._start)
 
     def getProgress(self):
-        if self._bound is 0:
-            return super(VideoInputAdvanced, self).getProgress()
-        else:
-            return (self._bound, self._framenum)
+        #if self._bound is 0:
+        #    p = super(VideoInputAdvanced, self).getProgress()
+        #else:
+        return ((self._bound - self._start)/(self._skip + 1), \
+                (self._framenum - 1 - self._start)/(self._skip + 1))
 
 InputRegister["Video with options"] = (VideoInputAdvanced, "videoskip.glade")
 

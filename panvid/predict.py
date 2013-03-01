@@ -35,7 +35,13 @@ class FeatureExtractor(object):
         self._detector = cv2.FeatureDetector_create(method)
         self._extractor = cv2.DescriptorExtractor_create(method)
         if method=="SURF":
+            self._extractor.setInt("upright", 1)
+            self._extractor.setInt("extended",0)
             self._extractor.setDouble("hessianThreshold",400)
+            self._detector.setInt("upright", 1)
+            self._detector.setInt("extended",0)
+            self._detector.setDouble("hessianThreshold",400)
+
 
     def getFeatures(self, image):
         grey = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
@@ -88,6 +94,7 @@ class RegisterImagesStandart(RegisterImages):
         extractor = FeatureExtractor(method)
         diff_2d = []
         frame_idx = 0
+        oldfeatures = None
         while frame is not None:
             if progressCB is not None:
                 overall, curr = self._stream.getProgress()
@@ -98,8 +105,12 @@ class RegisterImagesStandart(RegisterImages):
 
             if fmask is None or fmask[frame_idx]:
                 #Find features
-                (k1, d1) = extractor.getFeatures(lastframe)
+                if oldfeatures is not None:
+                    (k1, d1) = oldfeatures
+                else:
+                    (k1, d1) = extractor.getFeatures(lastframe)
                 (k2, d2) = extractor.getFeatures(frame)
+                oldfeatures = (k2, d2)
                 #Match them
                 flann = MatchDesciptorsFlann(d2, method)
                 match = flann.getPairs(d1)
@@ -115,6 +126,7 @@ class RegisterImagesStandart(RegisterImages):
                 else:
                     diff_2d.append(DataPoint(method))
             else:
+                oldfeatures = None
                 diff_2d.append(DataPoint(method))
             lastframe = frame
             frame = self._stream.getFrame()
@@ -219,7 +231,7 @@ registered_methods["LK"] = RegisterImagesLK
 class RegisterImagesDetect(RegisterImages):
     def getDiff(self, method="LK-SIFT", fmask=None, quality = 0.8, comp=True, doneCB=None, progressCB=None):
         methods= method.split("-")
-        fmask = None
+        fmask = fmask
         old_rez = None
         for m in methods:
             progressCB_pass = None
