@@ -5,9 +5,11 @@ from panvid.predict import *
 from panvid.input import *
 from panvid.pyprof2calltree import *
 from panvid.blend import *
+import numpy as np
 import cv2
 import cProfile
 import pstats
+import math
 intrest_code = \
     {'<cv2.findHomography>':("RANSAC", 0),
      '<cv2.goodFeaturesToTrack>':("LK Feature", 0),
@@ -23,16 +25,24 @@ def to_file(data, filename):
     f.close()
 
 class Benchmark(object):
-    vidsamples = [(2,"tests/samples/DSC_0011.MOV"), (0.3,"tests/samples/MVI_0017.AVI"), (0.9, "tests/samples/DSC_0004.MOV")]
-    images = ["/home/matas/part2/tests/samples/IMG_8686.JPG"]
+    vidsamples = [
+                  (0.3,"tests/samples/MVI_0017.AVI"),
+                  (0.9, "tests/samples/DSC_0004.MOV"),
+                  (2,"tests/samples/DSC_0011.MOV"),
+                ]
+    images = [
+              #"/home/matas/part2/tests/samples/IMG_7955.JPG",
+              #"/home/matas/part2/tests/samples/IMG_8686.JPG",
+              ]
     framesizes = [(500,600),(900,1000),(1000,2000)]
     methods = [("LK",0),("SURF", 0),("SIFT", 0)]
     methods = [("LK",0)]
-    vidsamples = []
+    genHomos = {}
     gen = []
 
 
-    def __init__(self, start, framenumber, seq=True):
+    def __init__(self, start, framenumber, seq=True, real_compare=None):
+        self.real_compare=real_compare
         self.start = start
         self.bound = 0
         if framenumber != 0:
@@ -73,7 +83,7 @@ class Benchmark(object):
         if filename in self.gen:
             return filename
         img = cv2.imread(imgpath)
-        gen = PathGenerator(120, img, None, frame_size)
+        gen = PathGenerator(200, img, None, frame_size)
         path = gen.getSweapPath(2000, False)
         spshpath = PathFilters(path).applySpeedChange(speed=30).applyShake().fixPath(frame_size, (img.shape[0], img.shape[1])).getPath()
         if self.bound != 0:
@@ -87,6 +97,11 @@ class Benchmark(object):
         for t in spshpath[1:]:
             self.last_path.append((round(t[0])-round(lt[0]),round(t[1])-round(lt[1])))
             lt = t
+
+        self.homos = []
+        for p in self.last_path:
+            self.homos.append(DataPoint("synth",1,np.matrix([[1,0,p[1]],[0,1,p[0]],[0,0,1]])))
+
         self.gen.append(filename)
         return filename
 
@@ -97,9 +112,32 @@ class Benchmark(object):
         register = RegisterImagesDetect(stream)
         progressCB = lambda *args: print (args)
         pred_path = register.getDiff(method, quality=0.80, progressCB=progressCB, fmask=self.fmask)
+        if self.real_compare is not None:
+            register = RegisterImagesDetect(stream)
+            if not self.genHomos.has_key(vidsampleID):
+                self.genHomos[vidsampleID] = register.getDiff(self.real_compare, quality=0.80, progressCB=progressCB, fmask=self.fmask)
+            good_path= self.genHomos[vidsampleID]
+            self.compare(good_path, pred_path, str(methodID)+" "+str(vidsampleID)+"r.txt" )
+
         return pred_path
 
-    def compare(self, path, npath):
+    def compare(self, path, npath, filename):
+        print (filename)
+        f = open("/tmp/"+filename,"w")
+        for (p,dp) in zip(path, npath):
+            cor = np.array([[0,0],[0,1000],[1000,0],[1000,1000]],dtype='float32')
+            cor = np.array([cor])
+            if dp.get_homo() is None:
+                continue
+            des = cv2.perspectiveTransform(cor, dp.get_homo())
+            desn = cv2.perspectiveTransform(cor, p.get_homo())
+            sq = 0.
+            dist = 0.
+            for p1,p2 in zip(des[0], desn[0]):
+                dist += abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
+                sq += math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+            f.write(str(dp.get_quality()) + " " + str(dist) + " " + str(sq) + "\n")
+        f.close()
         return
 
     def synth_data_bench(self, methodID, framesizeID, imageID):
@@ -108,9 +146,8 @@ class Benchmark(object):
         stream = VideoInputAdvanced(vidpath, skip=skip, start=self.start, bound=self.bound)
         register = RegisterImagesDetect(stream)
         progressCB = lambda *args: print (args)
-
         pred_path = register.getDiff(method, quality=0.80, progressCB=progressCB, fmask=self.fmask)
-        self.compare(self.last_path, pred_path)
+        self.compare(self.homos, pred_path, str(methodID)+" "+str(framesizeID)+" "+str(imageID)+"s.txt" )
         return pred_path
 
     def next_real_data_bench(self):
@@ -173,7 +210,7 @@ class Benchmark(object):
             s += "\n"
         return s
 
-b = Benchmark(0,0)
+b = Benchmark(0,0,True,"SURF")
 totaltime = {0:{},1:{}}
 
 cProfile.runctx("rez = b.next_bench()", locals(), globals(), "/tmp/bench")
