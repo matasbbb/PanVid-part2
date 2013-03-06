@@ -3,10 +3,11 @@ import numpy as np
 
 
 class DataPoint():
-    def __init__(self, method, quality=0, homo=None):
+    def __init__(self, method, quality=0, homo=None, marks=[]):
         self._method = method
         self._quality = quality
         self._homo = homo
+        self._marks = marks
         if homo is None:
             self._quality = 0
 
@@ -18,6 +19,8 @@ class DataPoint():
 
     def get_quality(self):
         return self._quality
+    def get_marks(self):
+        return self._marks
 
     def get_better_by_quality(self, datapoint):
         if self._quality > datapoint.get_quality():
@@ -140,9 +143,9 @@ registered_methods["SIFT"] = RegisterImagesStandart
 #registered_methods["FAST"] = RegisterImagesStandart
 #registered_methods["ORB"] = RegisterImagesStandart
 
-feature_params = dict( maxCorners = 100,
+feature_params = dict( maxCorners = 400,
                        qualityLevel = 0.05,
-                       minDistance = 40,
+                       minDistance = 35,
                        blockSize = 23,
                        useHarrisDetector = True)
 
@@ -156,7 +159,7 @@ class RegisterImagesLK(RegisterImages):
         #self.detector = lambda image: cv2.FeatureDetector_create("FAST").detect(image)
         self.detector = lambda image: cv2.goodFeaturesToTrack(image, **feature_params)
 
-    def getDiff(self, method="LK", fmask=None, doublecheck=False, doneCB=None, progressCB=None):
+    def getDiff(self, method="LK", fmask=None, doublecheck=True, doneCB=None, progressCB=None):
         if method != "LK":
             print "Not implemented in RegisterImagesLK " + method
             return None
@@ -176,7 +179,7 @@ class RegisterImagesLK(RegisterImages):
             if fmask is None or fmask[frame_idx]:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
-                if p0 is None or frame_idx % 20 == 0 or len(p0) < 32:
+                if p0 is None or frame_idx % 50 == 0 or len(p0) < 64 or True:
                     p0 = self.detector(prev_gray)
                 p1, st0, err = cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, **lk_params)
                 #If try back check, which reduces speed, but improves quality
@@ -190,6 +193,7 @@ class RegisterImagesLK(RegisterImages):
                     while sum(np.logical_and(d < (back_threshold/2), st)) >= 16 and back_threshold/2 > 0.01:
                         back_threshold /= 2
                     status = d < back_threshold
+                    status = True
                     status = np.logical_and(st,status)
                 else:
                     #Hack need real way!
@@ -210,9 +214,10 @@ class RegisterImagesLK(RegisterImages):
                     homography, mask = cv2.findHomography(p1, p0, cv2.RANSAC)
                     quality = min(1, 0.02/back_threshold) * min(len(p0)/16, 1)
                     quality *= mask.sum()/mask.size
-
+                    marks = [back_threshold, len(p0), 1.*mask.sum()/mask.size,
+                             1.*status.flatten().sum()/status.flatten().size]
                     #quality *= min(1,(float(sum(mask))/len(mask)*10)
-                    diff_2d.append(DataPoint(method,quality,homography))
+                    diff_2d.append(DataPoint(method,quality,homography,marks))
                     #Predicted points in new frame moved
                     p0 = p1
             else:

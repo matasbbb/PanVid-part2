@@ -5,6 +5,7 @@ from panvid.predict import *
 from panvid.input import *
 from panvid.pyprof2calltree import *
 from panvid.blend import *
+from panvid.predictSave import *
 import numpy as np
 import cv2
 import cProfile
@@ -36,8 +37,7 @@ class Benchmark(object):
               ]
     framesizes = [(500,600),(900,1000),(1000,2000)]
     methods = [("LK",0),("SURF", 0),("SIFT", 0)]
-    methods = [("LK",0)]
-    genHomos = {}
+    methods = [("LK",0), ("SURF",0)]
     gen = []
 
 
@@ -56,6 +56,8 @@ class Benchmark(object):
         if not seq:
             self.fmask = [True,False] * framenumber
             self.bound += framenumber
+        self.seq = seq
+        self.prevHomos = PredictSave()
 
 
     def create_cvs(data):
@@ -114,9 +116,16 @@ class Benchmark(object):
         pred_path = register.getDiff(method, quality=0.80, progressCB=progressCB, fmask=self.fmask)
         if self.real_compare is not None:
             register = RegisterImagesDetect(stream)
-            if not self.genHomos.has_key(vidsampleID):
-                self.genHomos[vidsampleID] = register.getDiff(self.real_compare, quality=0.80, progressCB=progressCB, fmask=self.fmask)
-            good_path= self.genHomos[vidsampleID]
+            ident = (self.real_compare,skip, vidpath, self.seq)
+            data = self.prevHomos.getData(ident)
+            if data is None:
+                #generate for all video!
+                stream = VideoInputAdvanced(vidpath, skip=skip)
+                register = RegisterImagesDetect(stream)
+                data = register.getDiff(self.real_compare, quality=0.80, progressCB=progressCB, fmask=self.fmask)
+                self.prevHomos.setData(ident, data)
+            #Crop data
+            good_path = data[self.start:]
             self.compare(good_path, pred_path, str(methodID)+" "+str(vidsampleID)+"r.txt" )
 
         return pred_path
@@ -136,7 +145,11 @@ class Benchmark(object):
             for p1,p2 in zip(des[0], desn[0]):
                 dist += abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
                 sq += math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
-            f.write(str(dp.get_quality()) + " " + str(dist) + " " + str(sq) + "\n")
+            s = str(dp.get_quality())
+            for m in dp.get_marks():
+                s += " " + str(m)
+            s += " " + str(dist) + " " + str(sq) +" \n"
+            f.write(s)
         f.close()
         return
 
@@ -210,7 +223,7 @@ class Benchmark(object):
             s += "\n"
         return s
 
-b = Benchmark(0,0,True,"SURF")
+b = Benchmark(0,200,True,"SURF")
 totaltime = {0:{},1:{}}
 
 cProfile.runctx("rez = b.next_bench()", locals(), globals(), "/tmp/bench")
