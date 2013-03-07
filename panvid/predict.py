@@ -159,7 +159,7 @@ class RegisterImagesLK(RegisterImages):
         #self.detector = lambda image: cv2.FeatureDetector_create("FAST").detect(image)
         self.detector = lambda image: cv2.goodFeaturesToTrack(image, **feature_params)
 
-    def getDiff(self, method="LK", fmask=None, doublecheck=True, doneCB=None, progressCB=None):
+    def getDiff(self, method="LK", fmask=None, doublecheck=False, doneCB=None, progressCB=None):
         if method != "LK":
             print "Not implemented in RegisterImagesLK " + method
             return None
@@ -193,7 +193,6 @@ class RegisterImagesLK(RegisterImages):
                     while sum(np.logical_and(d < (back_threshold/2), st)) >= 16 and back_threshold/2 > 0.01:
                         back_threshold /= 2
                     status = d < back_threshold
-                    status = True
                     status = np.logical_and(st,status)
                 else:
                     #Hack need real way!
