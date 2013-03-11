@@ -7,7 +7,7 @@ import cv2
 
 
 class TestRegisterImages(unittest.TestCase):
-    def test_getPath(self):
+    def test_syntheticGetPath(self):
         frame_size = (1000,1000)
         img = cv2.imread("tests/samples/IMG_8686.JPG")
         gen = PathGenerator(10, img, None, frame_size)
@@ -26,8 +26,8 @@ class TestRegisterImages(unittest.TestCase):
         inp = VideoInput("/tmp/test_speed_shake.avi")
         for m in ["LK", "LK-SURF", "SURF"]:
             print m
-            register = RegisterImagesDetect(inp.getClone())
-            pred_path = register.getDiff(m)
+            register = RegisterImagesContByString(inp.getClone(), m)
+            pred_path = register.getDiff()
             diff = (0,0)
             drift = (0,0)
             sqdiff = 0
@@ -44,32 +44,21 @@ class TestRegisterImages(unittest.TestCase):
             print ""
 
     def test_getCompWithSurfForLive(self):
-        inp = VideoInputAdvanced("tests/samples/DSC_0004.MOV", 40, 1)
-        register = RegisterImagesDetect(inp.getClone())
-        npath = register.getDiff("SURF")
+        inp = VideoInputAdvanced("tests/samples/DSC_0004.MOV", 40, 0)
+        register = RegisterImagesContByString(inp.getClone(), "SURF")
+        npath = register.getDiff()
 
-        for m in ["LK", "LK-SURF", "LK-SIFT", "SIFT"]:
+        for m in ["LK", "LK-SURF", "SURF"]:
             print "\n"+m
-            register = RegisterImagesDetect(inp.getClone())
-            pred_path = register.getDiff(m)
+            register = RegisterImagesContByString(inp.getClone(), m)
+            pred_path = register.getDiff()
             diff = 0
             self.assertEqual(len(pred_path), len(npath))
-            cor = np.array([[0,0],[0,1000],[1000,0],[1000,1000]],dtype='float32')
-            cor = np.array([cor])
             for (p,r) in zip(pred_path, npath):
-                if p.get_homo() is not None and r.get_homo() is not None:
-                    ph = p.get_homo()
-                    rh = r.get_homo()
-                    df = 0
-                    des0 = cv2.perspectiveTransform(cor,ph)
-                    des1 = cv2.perspectiveTransform(cor,rh)
-
-                    for p1,p2 in zip(des0[0],des1[0]):
-                        df += abs(p1[0]-p2[0]) + abs(p1[1]-p2[1])
-                    print (df, str(p))
+                df = p.get_distance(r)
+                print (df, str(p))
+                if df is not None:
                     diff += df
-                else:
-                    print "None!"
             print diff
             print ""
 

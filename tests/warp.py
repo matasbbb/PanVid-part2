@@ -12,9 +12,9 @@ import cv2
 class TestHomography(unittest.TestCase):
     def test_homoFocalTest_realVid(self):
         vidinput = VideoInputAdvanced("tests/samples/MVI_0017.AVI", 0, 10)
-        register = RegisterImagesDetect(vidinput)
-        homos = register.getDiff("LK-SURF")
-        for h in homos:
+        register = RegisterImagesContByString(inp.getClone(), "SURF")
+        npath = register.getDiff()
+        for h in npath:
             if h[1] is not None:
                 (f1, f2) = focalFromHomography(h[1])
                 if f1 is not None and f2 is not None:

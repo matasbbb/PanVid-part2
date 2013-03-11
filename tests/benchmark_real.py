@@ -3,6 +3,7 @@ from panvid.generateVideo import *
 from panvid.generatePath import *
 from panvid.predict import *
 from panvid.input import *
+from panvid.inputProxy import *
 from panvid.pyprof2calltree import *
 from panvid.blend import *
 from panvid.predictSave import *
@@ -27,8 +28,8 @@ def to_file(data, filename):
 
 class Benchmark(object):
     vidsamples = [
-                  (0.3,"tests/samples/MVI_0017.AVI"),
-                  (0.9, "tests/samples/DSC_0004.MOV"),
+                 # (0.3,"tests/samples/MVI_0017.AVI"),
+                 # (0.9, "tests/samples/DSC_0004.MOV"),
                   (2,"tests/samples/DSC_0011.MOV"),
                 ]
     images = [
@@ -38,6 +39,7 @@ class Benchmark(object):
     framesizes = [(500,600),(900,1000),(1000,2000)]
     methods = [("LK",0),("SURF", 0),("SIFT", 0)]
     methods = [("LK",0), ("SURF",0)]
+    methods = [("SURF",0)]
     gen = []
 
 
@@ -58,7 +60,8 @@ class Benchmark(object):
             self.bound += framenumber
         self.seq = seq
         self.prevHomos = PredictSave()
-
+        self.proxy = lambda stream: StreamProxyResize(stream, sizef=(0.5,0.5))
+        self.proxy = lambda stream: StreamProxyCrop(stream, size=(1280,720))
 
     def create_cvs(data):
         rows = {"Data":[]}
@@ -111,10 +114,13 @@ class Benchmark(object):
         size, vidpath = self.vidsamples[vidsampleID]
         method, skip = self.methods[methodID]
         stream = VideoInputAdvanced(vidpath, skip=skip, start=self.start, bound=self.bound)
+        if self.proxy is not None:
+            stream = self.proxy(stream)
         register = RegisterImagesDetect(stream)
         progressCB = lambda *args: print (args)
         pred_path = register.getDiff(method, quality=0.80, progressCB=progressCB, fmask=self.fmask)
-
+        if self.proxy is not None:
+            pred_path = stream.modifyDataPoints(pred_path)
         if self.real_compare is not None:
             for methcomp in self.real_compare:
                 register = RegisterImagesDetect(stream)
@@ -140,6 +146,7 @@ class Benchmark(object):
             cor = np.array([cor])
             if dp.get_homo() is None:
                 continue
+            np.set_printoptions(precision=3,suppress=True)
             des = cv2.perspectiveTransform(cor, dp.get_homo())
             desn = cv2.perspectiveTransform(cor, p.get_homo())
             sq = 0.
@@ -225,7 +232,7 @@ class Benchmark(object):
             s += "\n"
         return s
 
-b = Benchmark(0,0,True,["SURF","SIFT"])
+b = Benchmark(0,100,True,["SURF"])
 totaltime = {0:{},1:{}}
 
 cProfile.runctx("rez = b.next_bench()", locals(), globals(), "/tmp/bench")
