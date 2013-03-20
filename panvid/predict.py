@@ -6,14 +6,15 @@ register_methods_cont = {}
 
 class RegisterImagesCont():
     data_to_keep = 2
-    def __init__(self, stream, *args):
+    def __init__(self, stream, retain=2, *args, **kwargs):
         self._stream = stream
         self._data = []
         self._dps = []
+        self._data_to_keep = 2
         self._frames = [self._stream.getFrame()]
         self._sData = None
         self._method = "Not Set"
-        self._methodInit(*args)
+        self._methodInit(*args, **kwargs)
 
     def _methodInit(self, *args):
         return
@@ -39,13 +40,14 @@ class RegisterImagesCont():
             self._data.insert(0, None)
 
         return self._dps[0]
-
+    def getProgress(self):
+        return self._stream.getProgress()
     def getDiff(self, doneCB=None, progressCB=None):
         dp = []
         d = self.getNextDataPoint()
         while d is not None:
             if progressCB is not None:
-                progressCB(self._stream.getProgress())
+                progressCB(self._stream.getProgress(), str(d))
             dp.append(d)
             d = self.getNextDataPoint()
         if doneCB is not None:
@@ -63,7 +65,8 @@ class RegisterImagesContByString(RegisterImagesCont):
         for m in methods:
             mstream = MockStream()
             mstream.setFrame(self._frames[0])
-            reg = register_methods_cont[m](MockStream(), m)
+            reg = register_methods_cont[m](stream=MockStream(),
+                    retain=self.data_to_keep, method=m)
             self._sData.append((reg, mstream, quality.pop(0)))
 
     def _calcNext(self):
@@ -82,7 +85,7 @@ class RegisterImagesContByString(RegisterImagesCont):
 
 class RegisterImagesContStandart(RegisterImagesCont):
     data_to_keep = 1
-    def _methodInit(self, method, *args):
+    def _methodInit(self, method="SURF"):
         self._method = method
         self._sData = {"extractor":FeatureExtractor(method)}
 
@@ -124,8 +127,12 @@ lk_params = dict( winSize  = (23, 23),
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 40, 0.005))
 
 class RegisterImagesContLK(RegisterImagesCont):
-    def _methodInit(self, *args):
+    def _methodInit(self, method="LK", *args):
         self._method = "LK"
+        self._maxF = self._frames[0].shape[0]/feature_params["minDistance"] * \
+                     self._frames[0].shape[1]/feature_params["minDistance"] / 5
+
+
         self._sData = lambda image: cv2.goodFeaturesToTrack(image, **feature_params)
 
     def getFrame(self, n):
@@ -142,8 +149,14 @@ class RegisterImagesContLK(RegisterImagesCont):
         else:
             p0 = None
 
-        if p0 is None or len(p0) < 64:
+        if p0 is None or len(p0) < self._maxF * 3./5.:
             p0 = self._sData(self._frames[1])
+            if self._maxF < len(p0):
+                self._maxF = len(p0)
+            if self._maxF > len(p0):
+                self._maxF = self._maxF * 0.8 + len(p0) * 0.2
+
+        print (len(p0), self._maxF, len(self._data))
         p1, st0, err = cv2.calcOpticalFlowPyrLK(self._frames[1], self._frames[0], p0, **lk_params)
         #If try back check, which reduces speed, but improves quality
         if False and doublecheck:
@@ -171,20 +184,21 @@ class RegisterImagesContLK(RegisterImagesCont):
         else:
             homography, mask = cv2.findHomography(p1c, p0c, cv2.RANSAC)
             quality = 1.
-            quality *= min(len(p0c)/100., 1.)
+            quality *= min(len(p0c)/(self._maxF/2), 1.)
             quality *= 1. * mask.sum()/mask.size
             quality *= min(1., 0.02/back_threshold)
             if (len(p0c) < 40 and 1.* mask.sum()/mask.size < 0.90):
                 quality *= 0.1
             marks = [back_threshold, len(p0c), 1.*mask.sum()/mask.size,
                 1.*status.flatten().sum()/status.flatten().size]
+            #print marks
             #quality *= min(1,(float(sum(mask))/len(mask)*10)
             #NOW! IF quality of last second point is 0.01.
             #And we have frame(a) (so it was sequantial.
             #Register with this frame. So we have a<->b a<->c and b<->c.
             #Test if transition is within limits of overall.
             #Set quality to better if agried.
-            return (p0c, p1), DataPoint(self._method, quality, homography, marks)
+            return (p0c, p1c), DataPoint(self._method, quality, homography, marks)
 
 register_methods_cont["LK"] = RegisterImagesContLK
 

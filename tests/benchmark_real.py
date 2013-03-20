@@ -12,6 +12,7 @@ import cv2
 import cProfile
 import pstats
 import math
+import os
 intrest_code = \
     {'<cv2.findHomography>':("RANSAC", 0),
      '<cv2.goodFeaturesToTrack>':("LK Feature", 0),
@@ -28,8 +29,8 @@ def to_file(data, filename):
 
 class Benchmark(object):
     vidsamples = [
-                 # (0.3,"tests/samples/MVI_0017.AVI"),
-                 # (0.9, "tests/samples/DSC_0004.MOV"),
+               #   (0.3,"tests/samples/MVI_0017.AVI"),
+               #   (0.9, "tests/samples/DSC_0004.MOV"),
                   (2,"tests/samples/DSC_0011.MOV"),
                 ]
     images = [
@@ -39,7 +40,6 @@ class Benchmark(object):
     framesizes = [(500,600),(900,1000),(1000,2000)]
     methods = [("LK",0),("SURF", 0),("SIFT", 0)]
     methods = [("LK",0), ("SURF",0)]
-    methods = [("SURF",0)]
     gen = []
 
 
@@ -54,14 +54,21 @@ class Benchmark(object):
         self.fr = framenumber
         if self.fr == 0:
             self.fr = 1
-        self.fmask = None
-        if not seq:
-            self.fmask = [True,False] * framenumber
-            self.bound += framenumber
         self.seq = seq
         self.prevHomos = PredictSave()
         self.proxy = lambda stream: StreamProxyResize(stream, sizef=(0.5,0.5))
         self.proxy = lambda stream: StreamProxyCrop(stream, size=(1280,720))
+        self.proxy = None
+
+    def getImageStr(self, imageID):
+        return self.images[imageID].split("/")[-1].split(".")[0]
+
+    def getVideoStr(self, vidID):
+        return self.vidsamples[vidID][1].split("/")[-1].split(".")[0]
+
+
+    def getFrameStr(self, frameID):
+        return str(self.framesizes[frameID])
 
     def create_cvs(data):
         rows = {"Data":[]}
@@ -83,93 +90,86 @@ class Benchmark(object):
             ret_string += r + ", " + ", ".join(map(str,rows[r])) + "\n"
         return ret_string
 
-    def genVideos(self, frame_size, imgpath):
-        filename = "/tmp/" + "VID" + str(frame_size) + str(self.images.index(imgpath)) +".avi"
-        if filename in self.gen:
+    def genVideos(self, framesizeID, imageID):
+        filename = "/tmp/" + "VID" + self.getFrameStr(framesizeID) + \
+                self.getImageStr(imageID) + ".avi"
+        if filename in self.gen or self.path.exists(filename):
             return filename
-        img = cv2.imread(imgpath)
-        gen = PathGenerator(200, img, None, frame_size)
-        path = gen.getSweapPath(2000, False)
-        spshpath = PathFilters(path).applySpeedChange(speed=30).applyShake().fixPath(frame_size, (img.shape[0], img.shape[1])).getPath()
-        if self.bound != 0:
-            spshpath = spshpath[:self.bound+1]
-        vidgen = VideoSimpleGenerator(spshpath, img)
-        filt = VideoEffects()
-        filt.noise()
-        vidgen.save(filename, frame_size, fps=30, filt=filt)
+        img = cv2.imread(self.images[imageID])
+        gen = PathGenerator(200, img, None, self.framesizes[framesizeID])
+        linpath = gen.getSweapPath(2000, False)
+        filt = PathFilters(linpath).applySpeedChange(speed=30).applyShake()
+        path = filt.fixPath(frame_size, (img.shape[0], img.shape[1])).getPath()
+        vidgen = VideoSimpleGenerator(path, img)
+        vidgen.save(filename, frame_size, fps=30, filt=VideoEffects().noise())
         self.last_path = []
-        lt = spshpath[0]
-        for t in spshpath[1:]:
-            self.last_path.append((round(t[0])-round(lt[0]),round(t[1])-round(lt[1])))
+        lt = path[0]
+        for t in path[1:]:
+            self.last_path.append((round(t[0])-round(lt[0]),
+                                   round(t[1])-round(lt[1])))
             lt = t
-
         self.homos = []
         for p in self.last_path:
-            self.homos.append(DataPoint("synth",1,np.matrix([[1,0,p[1]],[0,1,p[0]],[0,0,1]])))
-
+            self.homos.append(DataPoint("synth", 1,
+                np.matrix([[1,0,p[1]],[0,1,p[0]],[0,0,1]])))
         self.gen.append(filename)
         return filename
 
     def real_data_bench(self, methodID, vidsampleID):
         size, vidpath = self.vidsamples[vidsampleID]
         method, skip = self.methods[methodID]
-        stream = VideoInputAdvanced(vidpath, skip=skip, start=self.start, bound=self.bound)
+        stream = VideoInputAdvanced(vidpath, self.bound, skip, self.start)
         if self.proxy is not None:
             stream = self.proxy(stream)
-        register = RegisterImagesDetect(stream)
+        register = RegisterImagesContByString(stream, self.seq*2, method)
         progressCB = lambda *args: print (args)
-        pred_path = register.getDiff(method, quality=0.80, progressCB=progressCB, fmask=self.fmask)
+        pred_path = register.getDiff(progressCB=progressCB)
+
         if self.proxy is not None:
             pred_path = stream.modifyDataPoints(pred_path)
         if self.real_compare is not None:
             for methcomp in self.real_compare:
-                register = RegisterImagesDetect(stream)
-                ident = (methcomp,skip, vidpath, self.seq)
+                #TODO skip if skip!
+                ident = (methcomp, vidpath)
                 data = self.prevHomos.getData(ident)
                 if data is None:
                     #generate for all video!
                     stream = VideoInputAdvanced(vidpath, skip=skip)
-                    register = RegisterImagesDetect(stream)
-                    data = register.getDiff(methcomp, quality=0.80, progressCB=progressCB, fmask=self.fmask)
+                    register = RegisterImagesContByString(stream, self.seq * 2, methcomp)
+                    data = register.getDiff(progressCB=progressCB)
                     self.prevHomos.setData(ident, data)
-            #Crop data
+                #Crop data
                 good_path = data[self.start:]
-                self.compare(good_path, pred_path, method+"to"+methcomp+str(vidsampleID)+"r.txt" )
+                self.compare(good_path, pred_path,
+                        method+"_to_"+methcomp + "_" + \
+                                self.getVideoStr(vidsampleID)+"_r.txt")
 
         return pred_path
 
     def compare(self, path, npath, filename):
-        print (filename)
         f = open("/tmp/"+filename,"w")
         for (p,dp) in zip(path, npath):
-            cor = np.array([[0,0],[0,1000],[1000,0],[1000,1000]],dtype='float32')
-            cor = np.array([cor])
-            if dp.get_homo() is None:
-                continue
+            dist = dp.get_distance(p)
+            if dist == None:
+                dist = 10000
             np.set_printoptions(precision=3,suppress=True)
-            des = cv2.perspectiveTransform(cor, dp.get_homo())
-            desn = cv2.perspectiveTransform(cor, p.get_homo())
-            sq = 0.
-            dist = 0.
-            for p1,p2 in zip(des[0], desn[0]):
-                dist += abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
-                sq += math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
             s = str(dp.get_quality())
             for m in dp.get_marks():
                 s += " " + str(m)
-            s += " " + str(dist) + " " + str(sq) +" \n"
+            s += " " + str(dist) + " \n"
             f.write(s)
         f.close()
         return
 
     def synth_data_bench(self, methodID, framesizeID, imageID):
-        vidpath = self.genVideos(self.framesizes[framesizeID], self.images[imageID])
+        vidpath = self.genVideos(framesizeID, imageID)
         method, skip = self.methods[methodID]
-        stream = VideoInputAdvanced(vidpath, skip=skip, start=self.start, bound=self.bound)
-        register = RegisterImagesDetect(stream)
+        stream = VideoInputAdvanced(vidpath, self.bound, skip, self.start)
+        register = RegisterImagesContByString(stream, method, retain=self.seq*2)
         progressCB = lambda *args: print (args)
-        pred_path = register.getDiff(method, quality=0.80, progressCB=progressCB, fmask=self.fmask)
-        self.compare(self.homos, pred_path, str(methodID)+" "+str(framesizeID)+" "+str(imageID)+"s.txt" )
+        pred_path = register.getDiff(progressCB=progressC)
+        self.compare(self.homos, pred_path,
+                method+"_to_"+str(framesizeID)+"_"+self.getImageStr(imageID)+"_s.txt" )
         return pred_path
 
     def next_real_data_bench(self):
@@ -232,19 +232,21 @@ class Benchmark(object):
             s += "\n"
         return s
 
-b = Benchmark(0,100,True,["SURF"])
+b = Benchmark(0,300,True,["SURF"])
+b = Benchmark(0,300,True)
+
 totaltime = {0:{},1:{}}
 
 cProfile.runctx("rez = b.next_bench()", locals(), globals(), "/tmp/bench")
 while rez:
     if False:
-        stream = VideoInputAdvanced(vidpath,skip=skip)
+        stream = VideoInputAdvanced(vidpath, skip=skip)
         blend = BlendOverlay2D(stream)
         blend.blendNextN(retval, True, False)
         cv2.imwrite("/tmp/"+ method + str(i)+ ".jpg",blend.getPano())
 
     p = pstats.Stats("/tmp/bench")
-    #p.strip_dirs().sort_stats("time").print_stats(10)
+    p.strip_dirs().sort_stats("time").print_stats(10)
     data_dict = {}
     tree = CalltreeConverter(p)
     (real, rez) = rez

@@ -3,17 +3,23 @@ import logging
 import numpy as np
 import PIL.Image as PImg
 import math
+from panvid.predictHelpers import *
 
 BlendRegister = {}
 class BlendImages():
-    def __init__(self, stream):
+    def __init__(self, stream=None, reg=None, progressCB=None):
         self._log = logging.getLogger(__name__)
         self._log.info("Blender created")
         self._stream = stream
+        self._reg = reg
+        if reg is not None:
+            self._stream = MockStream()
+            self._stream.setFrame(reg._frames[0])
         #First frame as base
-        self._pano = stream.getFrame()
+        self._pano = self._stream.getFrame()
         self._window = []
         self._data = None
+        self._pg=progressCB
         #self.prevPano()
 
     def setParams(self):
@@ -35,10 +41,21 @@ class BlendImages():
             cv2.imshow(window, image)
 
     def blendNextN (self, dataset, prev=False, wait=False):
-        for data in dataset:
-            self.blendNext(data)
-            if prev:
-               self.prevPano(wait=wait)
+        if self._reg is not None:
+            d = self._reg.getNextDataPoint()
+            while d is not None:
+                self._stream.setFrame(self._reg._frames[0])
+                self.blendNext(d)
+                if self._pg is not None:
+                    self._pg(self._reg.getProgress())
+                if prev:
+                    self.prevPano(wait=wait)
+                d = self._reg.getNextDataPoint()
+        else:
+            for data in dataset:
+                self.blendNext(data)
+                if prev:
+                   self.prevPano(wait=wait)
 
     def merge(self, toImg, fromImg, over=True):
         """ toImg size should be equal to fromImg"""
@@ -77,17 +94,14 @@ class BlendOverlay2D(BlendImages):
             print add
             #First and add boundaries that new image will fit
             self._pano = cv2.copyMakeBorder(self._pano, *add, borderType=cv2.BORDER_CONSTANT)
-
-            #self.merge(self._pano[shift[0]:shift[0]+h, shift[1]:shift[1]+w],image,over=True)
             self._pano[shift[0]:shift[0]+h, shift[1]:shift[1]+w] = image
             #If moved shift changed
             self._data = shift
 
 BlendRegister["Overlay by shift"] = (BlendOverlay2D, None)
 class BlendOverlayHomo(BlendImages):
-    def __init__(self, stream):
-        BlendImages.__init__(self, stream)
-        #self._pano = cv2.cvtColor(self._pano, cv2.cv.CV_BGR2BGRA)
+    def __init__(self, *args):
+        BlendImages.__init__(self, *args)
 
     def blendNext(self, datapoint):
         homo = datapoint.get_homo()
@@ -100,33 +114,49 @@ class BlendOverlayHomo(BlendImages):
             else:
                 self._data = np.dot(self._data, homo)
             homography = self._data
-            image2 = self._stream.getFrame()
-            image1 = self._pano
+            nframe = self._stream.getFrame()
+            pano = self._pano
+
             ## Work out position of image corners after alignment
-            (h1,w1,_) = image1.shape
-            (h2,w2,_) = image2.shape
-            p1 = np.array([[0, 0, w1-1, w1-1], [0, h1-1, 0, h1-1]])
-            p2 = np.array([[0, 0, w2-1, w2-1], [0, h2-1, 0, h2-1], [1, 1, 1, 1]])
-            p2 = np.matrix(homography) * p2;
-            p2 = p2[0:2,...] / p2[2,...].repeat(2, axis=0)
-            p = np.concatenate((p1, p2), axis=1)
+            (ph,pw,_) = pano.shape
+            (fh,fw,_) = nframe.shape
+            np.set_printoptions(precision=3, suppress=True)
+            cor = np.array([[0,0],[0, fh],[fw,0],[fw,fh]],dtype='float32')
+            cor = np.array([cor])
+            corhom = cv2.perspectiveTransform(cor, homography)[0]
+            #Want to make trans image such size that all filled after transform
+            top = int(max(corhom[0][1],corhom[2][1]))+2
+            bot = int(min(corhom[1][1],corhom[3][1]))-4
+            left = int(max(corhom[0][0],corhom[1][0]))+2
+            right = int(min(corhom[2][0], corhom[3][0]))-4
+            #We want to transform to 0,0
+            chomo = homography.copy()
+            chomo[0][2] -= left
+            chomo[1][2] -= top
+            s = (right-left, bot-top)
+            transf_image = cv2.warpPerspective(src=nframe,M=chomo, dsize=s)
+            #self.prevPano(True, "Debug", transf_image)
 
-            ## Calculate translation and size of output bitmap
-            t = -p.min(1)
-            s = np.ceil(p.max(1) + t).astype(np.int32)
-            t = (t[0,0], t[1,0])
-            # hack with max, due to 1px miscal
-            s = (max(s[0,0], int(w1+t[0])), max(s[1,0], int(h1+t[1])))
-            print "output size: %ix%i" % s
+            #Now we get image which we need to put at (top, left, right, bot)
+            add=[0,0,0,0]
+            if top < 0:
+                add[0] = -top
+                homography[1][2] += -top
+                bot += -top
+                top = 0
+            if left < 0:
+                add[2] = -left
+                homography[0][2] += -left
+                right += -left
+                left = 0
+            if right > pw:
+                add[3] = right - pw
+            if bot > ph:
+                add[1] = bot - ph
+            pano = cv2.copyMakeBorder(pano, *add, borderType=cv2.BORDER_CONSTANT)
+            #self.prevPano(True, "Moved Pano", pano)
 
-            ## Translate everything back
-            homography[0:2,2] += t
-
-            ## Warp second image to fit the first
-            pano = cv2.warpPerspective(image2, homography, s, flags=cv2.INTER_CUBIC)
-            self.prevPano(window="Debug", image=pano)
-            #self.merge(pano[t[1]:h1+t[1], t[0]:w1+t[0]], image1, True)
-            pano[t[1]:h1+t[1], t[0]:w1+t[0]] = image1
+            pano[top:bot,left:right] = transf_image
 
 
             self._pano = pano
