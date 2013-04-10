@@ -11,6 +11,9 @@ class StreamProxy(StreamInput):
     def getProgress(self):
         return self._stream.getProgress()
 
+    def modifyDataPoints(self,datapoints):
+        return datapoints
+
 class StreamProxyBorder(StreamProxy):
     def __init__(self, stream, borderColor=(0,0,255), borderWidth=5,
             borderColorEnd=(0,0,50)):
@@ -73,7 +76,7 @@ class StreamProxyResize(StreamProxy):
 
 class StreamProxyCrop(StreamProxy):
     #Prefered method is area, because most often we resample down, not zoom
-    def __init__(self, stream, size=(1000,1000), center=False):
+    def __init__(self, stream, size=(1000,1000), center=True):
         self._size = size
         self._center = center
         self._fs = None
@@ -89,14 +92,29 @@ class StreamProxyCrop(StreamProxy):
         else:
             x = frame.shape[0]/2 - size[0]/2
             y = frame.shape[1]/2 - size[1]/2
+            self._edges = (x,y,size[0]-x,size[1]-y)
             nframe = frame[x:x+size[0],y:y+size[1]]
         self._fs = frame.shape
         return nframe
 
     def modifyDataPoints(self,datapoints):
-        #Crop dont make change in homographie
+        #It requires editing if it is not corner
+        if self._center:
+            xt,yl,xb,yr = self._edges
+            #Looks like weird switch over... WTF!
+            yl,xt,yr,xb = self._edges
+            #We got smaller ones homo, we need to convert to bigger!
+            #So intrest points are around
+            cor = np.array([[-xt,-yl],[-xt,yr],[xb,-yl],[xb,yr]], dtype='float32')
+            cor = np.array([cor])
+            for d in datapoints:
+                if d._homo is not None:
+                    des = cv2.perspectiveTransform(cor, d._homo)
+                    homo, _ = cv2.findHomography(cor, des)
+                    d._homo = homo
         return datapoints
 
     def getClone(self):
         return StreamProxyCrop(self._stream.getClone(), self._size, self._center)
+
 

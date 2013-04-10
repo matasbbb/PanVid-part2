@@ -9,11 +9,14 @@ class MockStream():
         return self.frames.pop(0)
 
 class DataPoint():
-    def __init__(self, method, quality=0, homo=None, marks=[]):
+    def __init__(self, method, shape=(1000,1000), quality=0, homo=None, marks=[]):
         self._method = method
         self._quality = quality
         self._homo = homo
         self._marks = marks
+        self._shape = shape
+        cor = np.array([[0,0],[0,shape[1]],[shape[0],0],[shape[0],shape[1]]],dtype='float32')
+        self._cor = np.array([cor])
         if homo is None:
             self._quality = 0
 
@@ -32,10 +35,8 @@ class DataPoint():
         return self._marks
     def get_distance(self, datapoint):
         if self._homo is not None  and datapoint.get_homo() is not None:
-            cor = np.array([[0,0],[0,1000],[1000,0],[1000,1000]],dtype='float32')
-            cor = np.array([cor])
-            des = cv2.perspectiveTransform(cor, self._homo)
-            desn = cv2.perspectiveTransform(cor, datapoint.get_homo())
+            des = cv2.perspectiveTransform(self._cor, self._homo)
+            desn = cv2.perspectiveTransform(self._cor, datapoint.get_homo())
             dist = 0.
             for p1,p2 in zip(des[0], desn[0]):
                 dist += abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
@@ -50,8 +51,41 @@ class DataPoint():
             return datapoint
 
     def __str__(self):
-        return "Method: " + str(self._method) + " Quality: " + str(self._quality)
+        return "Method: " + str(self._method) + " Quality: " + str(self._quality) + " Marks:" + str(self._marks)
 
+    def __mul__(self, other):
+        #Dont fail gracefully
+        if other.get_homo() is not None and self.get_homo() is not None:
+            nhomo = np.dot(self.get_homo(), other.get_homo())
+        else:
+            nhomo = None
+
+        return DataPoint(self._method + "*" + other._method, self._shape, self._quality * other._quality, nhomo )
+class DataPoints(DataPoint):
+    def __init__(self, points):
+        #For compatibility
+        DataPoint.__init__(self, points[0])
+        self.points = points
+    def __str__(self):
+        return self.points
+    def getIntrest(self):
+        #We tolerate if differences are similar by factor or 200 (which is bigger)
+        f = 1.2
+        s = 0
+        maxd = 0
+        n = 0
+        for p1 in self.points:
+            for p2 in self.points:
+                if p1 != p2:
+                    dist = p1.get_distance(p2)
+                    if dist is None:
+                        return 1
+                    s += dist
+                    maxd = max(maxd, dist)
+                    n +=1
+        s /= 1.0*n
+        toleration = min(f*s, 200)
+        return 1./(maxd/toleration)
 
 
 class FeatureExtractor(object):
@@ -65,6 +99,11 @@ class FeatureExtractor(object):
             self._detector.setInt("upright", 1)
             self._detector.setInt("extended",0)
             self._detector.setDouble("hessianThreshold",400)
+        if method=="SIFT":
+            #self._detector.setDouble("contrastThreshold",0.08)
+            #self._detector.setDouble("edgeThreshold",8)
+            self._detector.setDouble("sigma",1.4)
+
 
 
     def getFeatures(self, image):

@@ -45,7 +45,9 @@ class BlendImages():
             d = self._reg.getNextDataPoint()
             while d is not None:
                 self._stream.setFrame(self._reg._frames[0])
-                self.blendNext(d)
+                rez = self.blendNext(d)
+                if rez is not None:
+                    return
                 if self._pg is not None:
                     self._pg(self._reg.getProgress())
                 if prev:
@@ -53,7 +55,9 @@ class BlendImages():
                 d = self._reg.getNextDataPoint()
         else:
             for data in dataset:
-                self.blendNext(data)
+                rez = self.blendNext(data)
+                if rez is not None:
+                    return 
                 if prev:
                    self.prevPano(wait=wait)
 
@@ -121,21 +125,37 @@ class BlendOverlayHomo(BlendImages):
             (ph,pw,_) = pano.shape
             (fh,fw,_) = nframe.shape
             np.set_printoptions(precision=3, suppress=True)
-            cor = np.array([[0,0],[0, fh],[fw,0],[fw,fh]],dtype='float32')
+            cor = np.array([[0,0],[0, fh-1],[fw-1,0],[fw-1,fh-1]],dtype='float32')
             cor = np.array([cor])
             corhom = cv2.perspectiveTransform(cor, homography)[0]
+            crop = 3
             #Want to make trans image such size that all filled after transform
-            top = int(max(corhom[0][1],corhom[2][1]))+2
-            bot = int(min(corhom[1][1],corhom[3][1]))-4
-            left = int(max(corhom[0][0],corhom[1][0]))+2
-            right = int(min(corhom[2][0], corhom[3][0]))-4
+            top = int(max(corhom[0][1],corhom[2][1]))+crop
+            bot = int(min(corhom[1][1],corhom[3][1]))-crop
+            left = int(max(corhom[0][0],corhom[1][0]))+crop
+            right = int(min(corhom[2][0], corhom[3][0]))-crop
+            
+           
             #We want to transform to 0,0
-            chomo = homography.copy()
-            chomo[0][2] -= left
-            chomo[1][2] -= top
+            #TODO: maybe need mult
+            #chomo = homography.copy()
+            #chomo[0][2] -= left
+            #chomo[1][2] -= top
+            chomo = np.dot(np.matrix([[1,0,-left],[0,1,-top],[0,0,1]]), homography)
             s = (right-left, bot-top)
+            if s[0] < 0 or s[1] < 0:
+                return False
             transf_image = cv2.warpPerspective(src=nframe,M=chomo, dsize=s)
             #self.prevPano(True, "Debug", transf_image)
+
+            #Add white dots for testing
+            print (top, bot, left, right)
+            print transf_image.shape
+            #transf_image[top,left] = [0,255,0]
+            #transf_image[bot,right] = [0,255,0]
+            #transf_image[top,right] = [0,255,0]
+            #transf_image[bot,left] = [0,255,0]
+
 
             #Now we get image which we need to put at (top, left, right, bot)
             add=[0,0,0,0]

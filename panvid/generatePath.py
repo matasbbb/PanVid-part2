@@ -73,11 +73,11 @@ class PathGenerator(object):
     def getSweapPath(self, pos, vert=True):
         """Generates simple sweap at indicated position"""
         if not vert:
-            return self.getPath([(pos, self._vsize[0] / 2),
-                                 (pos, self._bounds[0] - self._vsize[0] / 2)])
+            return self.getPath([(pos, self._vsize[1] / 2),
+                                 (pos, self._bounds[1] - self._vsize[1] / 2)])
         else:
-            return self.getPath([(self._vsize[1] / 2, pos),
-                                 (self._bounds[1] - self._vsize[1] / 2, pos)])
+            return self.getPath([(self._vsize[0] / 2, pos),
+                                 (self._bounds[0] - self._vsize[0] / 2, pos)])
 
     def getPath(self, points):
         """Generates array of points, which will corespond to each frame,

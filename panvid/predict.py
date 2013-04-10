@@ -5,13 +5,15 @@ import numpy as np
 register_methods_cont = {}
 
 class RegisterImagesCont():
-    data_to_keep = 2
     def __init__(self, stream, retain=2, *args, **kwargs):
         self._stream = stream
         self._data = []
         self._dps = []
-        self._data_to_keep = 2
+        self._data_to_keep = retain
         self._frames = [self._stream.getFrame()]
+        if self._frames[0] is None:
+            print "Empty stream!"
+            return
         self._sData = None
         self._method = "Not Set"
         self._methodInit(*args, **kwargs)
@@ -28,9 +30,10 @@ class RegisterImagesCont():
         if frame is None:
             return None
         self._frames.insert(0, frame)
-        if len(self._frames) > self.data_to_keep + 2:
+        if len(self._frames) > self._data_to_keep + 2:
             self._frames.pop()
-
+        if len(self._data) > self._data_to_keep:
+            self._data.pop()
         if not skip:
             data, dp = self._calcNext()
             self._data.insert(0, data)
@@ -66,7 +69,7 @@ class RegisterImagesContByString(RegisterImagesCont):
             mstream = MockStream()
             mstream.setFrame(self._frames[0])
             reg = register_methods_cont[m](stream=MockStream(),
-                    retain=self.data_to_keep, method=m)
+                    retain=self._data_to_keep, method=m)
             self._sData.append((reg, mstream, quality.pop(0)))
 
     def _calcNext(self):
@@ -83,8 +86,36 @@ class RegisterImagesContByString(RegisterImagesCont):
         else:
             return None, goodpoint
 
+class RegisterImagesContByStringAll(RegisterImagesContByString):
+    def _calcNext(self):
+        points = []
+        for (m,s,q) in self._sData:
+            s.setFrame(self._frames[0])
+            d = m.getNextDataPoint(found)
+            points.append(d)
+        return None, DataPoints(points)
+
+class RegisterImagesGapedByString(RegisterImagesContByString):
+    def _methodInit(self, method="LK-SURF", quality=0.5, gap=0, *args):
+        RegisterImagesContByString._methodInit(self, method, quality, *args)
+        self._gap = gap + 1
+        self._skiped = 0
+
+    def _calcNext(self):
+        ret = None, DataPoint("Skiped")
+        print self._gap, self._skiped
+        if self._skiped % self._gap == 0:
+            #Only one
+            ret = RegisterImagesContByString._calcNext(self)
+        if self._skiped % self._gap == self._gap - 1:
+            #Not intresting
+            RegisterImagesContByString._calcNext(self)
+        self._skiped += 1
+        return ret
+
+
 class RegisterImagesContStandart(RegisterImagesCont):
-    data_to_keep = 1
+    _data_to_keep = 1
     def _methodInit(self, method="SURF"):
         self._method = method
         self._sData = {"extractor":FeatureExtractor(method)}
@@ -109,7 +140,7 @@ class RegisterImagesContStandart(RegisterImagesCont):
             #Asume if features matched it means they are good
             quality = min(len(c2)/100.,1.)
             quality *= mask.sum()/mask.size
-            return (k2, d2), DataPoint(self._method, quality, homography)
+            return (k2, d2), DataPoint(self._method, self._frames[0].shape, quality, homography, [len(c2), mask.sum()/mask.size])
         else:
             return (k2, d2), DataPoint(self._method)
 
@@ -118,87 +149,199 @@ register_methods_cont["SURF"] = RegisterImagesContStandart
 
 feature_params = dict( maxCorners = 400,
                        qualityLevel = 0.05,
-                       minDistance = 35,
+                       minDistance = 33,
                        blockSize = 23,
-                       useHarrisDetector = True)
+                       useHarrisDetector = False)
 
 lk_params = dict( winSize  = (23, 23),
-                  maxLevel = 4,
+                  maxLevel = 3,
+                  minEigThreshold = 0.0001,
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 40, 0.005))
 
 class RegisterImagesContLK(RegisterImagesCont):
     def _methodInit(self, method="LK", *args):
         self._method = "LK"
         self._maxF = self._frames[0].shape[0]/feature_params["minDistance"] * \
-                     self._frames[0].shape[1]/feature_params["minDistance"] / 5
-
-
+                     self._frames[0].shape[1]/feature_params["minDistance"] / 10
+        self._maxF = None
+        
         self._sData = lambda image: cv2.goodFeaturesToTrack(image, **feature_params)
+        self._points = self._frames[0].shape[0]*self._frames[0].shape[1]*0.0001
 
-    def getFrame(self, n):
-        if self._frames[n] is not grey:
-            self._frames[n] = cv2.cvtColor(self._frames[n], cv2.COLOR_BGR2GRAY)
-        return self._frames[n]
+    def predictCheap(self, pre_points, frame0, frame1, prevHomo=None):
+        p1=None
+        flags=cv2.OPTFLOW_LK_GET_MIN_EIGENVALS
+        if prevHomo is not None and False:
+            p1=cv2.perspectiveTransform(pre_points, prevHomo)
+            flags+=cv2.OPTFLOW_USE_INITIAL_FLOW
+        p0 = pre_points
+        p1, st0, err = cv2.calcOpticalFlowPyrLK(self._frames[frame1], self._frames[frame0], p0, p1, flags=flags, **lk_params)
+        self._count += 1
+        d = abs(p0).reshape(-1, 2).max(-1)
+        status = True
+        status = np.logical_and(st0.flatten(),status)
+        p1c = p1[status].copy()
+        p0c = p0[status].copy()
+        marks = [len(p0c), 0,
+           1.*status.flatten().sum()/status.flatten().size]
+        
+        if len(p1c) < 4:
+            return p0c, p1c, DataPoint(self._method, marks=marks)
+        homography, mask = cv2.findHomography(p1c, p0c, cv2.RANSAC)
+        quality = 1.
+        quality *= min(len(p0c)/(self._points), 1.)
+        quality *= 1. * mask.sum()/mask.size
+        #if (len(p0c) < 40 and 1.* mask.sum()/mask.size < 0.90):
+        #   quality *= 0.1
+        marks[1] = 1.*mask.sum()/mask.size
+ 
+        return p0c, p1c, DataPoint(self._method, self._frames[0].shape, quality, homography, marks)
+    #     [(old_points, new_points).(old_points, new_points)]
+    # frame[0]<-data[0][1]<-frame[1]<-data[0][0]<(posible =) - data[1][1]-frame[2]<-data[1][0]  
+    def getFromPoints(self, f, new=True):
+        points = None
+        if len(self._data) > f and len(self._data[f]) > 1:
+             points = self._data[f][new]
+        return points
 
-    def _calcNext(self):
+    def calcPoints(self, f, points=None):
+        #more points
+        if points is None:
+            points = None
+        #Clever clean up?
+        points = self._sData(self._frames[f])
+        if points is None:
+            print "WTF!"
+            return []
+        if self._maxF is None:
+            self._maxF = len(points)
+        if self._maxF < len(points):
+            self._maxF = len(points)
+        if self._maxF > len(points):
+            self._maxF = self._maxF * 0.8 + len(points) * 0.2
+        return points
+
+    def checkGray(self):
         for i in xrange(len(self._frames)):
             if len(self._frames[i].shape) == 3:
                 self._frames[i] = cv2.cvtColor(self._frames[i], cv2.COLOR_BGR2GRAY)
-        if len(self._data) > 0 and len(self._data[0]) > 1:
-            p0 = self._data[0][1]
+
+    def _calcNext(self):
+        self._count = 0
+        self.checkGray()
+        
+        #Try get frames from old frame.
+        from_points = self.getFromPoints(0)
+        
+        #If none or not enouth calculate from this frame
+        if from_points is None or len(from_points) < self._maxF*4./5.:
+            from_points = self.calcPoints(0, from_points)
+        
+        if len(from_points) < 4:
+            #Cant do anything better!
+            return (from_points, []), DataPoint(self._method)
+        
+        homo = None
+        if len(self._dps) > 0 and self._dps[0].get_quality > 0.9:
+            homo = self._dps[0].get_homo()
+            
+        #Predict simply
+        prev_croped, new_points_1, dp0_1 = self.predictCheap(from_points,0,1,homo)
+
+
+        dp0_1._marks.append(dp0_1._quality)
+        #Doublecheck?
+        other_dps = [dp0_1]
+        back, num,dp = 0,0,0
+        if dp0_1._quality < 1:
+            #double is better!
+            back, num, dp, newdp0_1 = self.double(prev_croped, new_points_1)
+            if newdp0_1._quality > 0.9:
+                newdp0_1._marks = dp0_1._marks
+                dp0_1 = newdp0_1
+                other_dps.insert(0,dp0_1)
+            else:
+                other_dps.append(newdp0_1)
+            dp0_1._marks.append(newdp0_1._quality)
         else:
-            p0 = None
+            dp0_1._marks.append(0)
 
-        if p0 is None or len(p0) < self._maxF * 3./5.:
-            p0 = self._sData(self._frames[1])
-            if self._maxF < len(p0):
-                self._maxF = len(p0)
-            if self._maxF > len(p0):
-                self._maxF = self._maxF * 0.8 + len(p0) * 0.2
+            #dst = copydp0_1.get_distance(dp0_1)
+            #dp0_1._marks.append(dst, num)
+            #if dst is not None and dst != 0:
+            #    dp0_1._quality *= min(1,30/dst)
+                #dp0_1._quality *= min(1,2*num/len(prev_croped))
+            #    dp0_1._quality = double_dp._quality
+        dp0_1._marks.append(back)
+        dp0_1._marks.append(num)
+        dp0_1._marks.append(dp)
+       
+        #Check with last frame, it will update it
+        dp0_1 = self.checkback(other_dps)
+        
+        print str(self._count) + "     " + str(dp0_1._quality )
+        return (from_points, new_points_1), dp0_1
+        
+    def checkback(self, dps, quality=0.98, distance=50):
+        dist = 10000
+        #If bad and we have last homo check against it!
+        dp0_1 = dps.pop(0)
+        if dp0_1.get_quality() < quality:
+            from_points_2 = self.getFromPoints(1)
+            if from_points_2 is not None and \
+                    len(from_points_2) > 4 and  \
+                    self._dps[0].get_quality() > 0:
+                prev_croped, new_points_2, dp0_2 = self.predictCheap(from_points_2,0,2)
+                dp1_2 = self._dps[0]
+                dist = dp0_2.get_distance(dp1_2*dp0_1)
+                #Get lower if have second
+                for dpn in dps:
+                    if dpn is not None:
+                        ndist = dp0_2.get_distance(dp1_2*dpn)
+                        if ndist is not None and ndist < dist:
+                            dist = ndist
+                            print "Happended"
+                            dp0_1._homo = dpn._homo 
 
-        print (len(p0), self._maxF, len(self._data))
-        p1, st0, err = cv2.calcOpticalFlowPyrLK(self._frames[1], self._frames[0], p0, **lk_params)
+                if dist is None:
+                    dist = 10000
+                if dist < distance:
+                    dp0_1._quality += dp0_2._quality + dp1_2._quality
+                    dp0_1._quality = min(dp0_1._quality/2., 1.)
+                    dp0_1._quality *= min(1.*len(from_points_2)/self._maxF,1.)
+                    dp0_1._quality *= min(((distance-dist)*2/distance),1.)
+                else:
+                    #we need to decrease quality
+                    dp0_1._quality *= distance/dist
+        dp0_1._marks.append(dist)
+        return dp0_1
+
+    def double(self, p0, p1, back_threshold=10., points=8, mini=0.2):
         #If try back check, which reduces speed, but improves quality
-        if False and doublecheck:
-            p0r, st1, err = cv2.calcOpticalFlowPyrLK(self._frames[0], self._frames[1], p1, **lk_params)
-            st = np.logical_and(st0.flatten(),st1.flatten())
-            d = abs(p0-p0r).reshape(-1, 2).max(-1)
-            back_threshold = 10.00
-            #While we have enouth points reduce threshold
-            #Biger threshold better, but we still want more than 16 points
-            while sum(np.logical_and(d < (back_threshold/2), st)) >= 16 and back_threshold/2 > 0.01:
-                back_threshold /= 2
-            status = d < back_threshold
-            status = np.logical_and(st,status)
-        else:
-            #Hack need real wa1!
-            back_threshold = 0.02
-            d = abs(p0).reshape(-1, 2).max(-1)
-            status = True
-            status = np.logical_and(st0.flatten(),status)
+        p0r, st1, err = cv2.calcOpticalFlowPyrLK(self._frames[0], self._frames[1], p1, **lk_params)
+        self._count += 1
+        if st1 is None:
+            return 0, back_threshold, 0, DataPoint(self._method)    
+        st = st1.flatten()
+        d = abs(p0-p0r).reshape(-1, 2).max(-1)
+        #While we have enouth points reduce threshold
+        #Biger threshold better, but we still want more than 16 points
+        with_01 = np.logical_and(d < mini, st).sum()
+        while sum(np.logical_and(d < (back_threshold/2), st)) >= points and back_threshold/2 > 0.1:
+            back_threshold /= 1.5
+        status = d < back_threshold
+        status = np.logical_and(st,status)
         p1c = p1[status].copy()
         p0c = p0[status].copy()
-        #If not enougth points
-        if len(p0c) < 4:
-            return (None, None), DataPoint(self._method)
-        else:
+        if len(p0c) >  4:
+            #Different direction!
             homography, mask = cv2.findHomography(p1c, p0c, cv2.RANSAC)
-            quality = 1.
-            quality *= min(len(p0c)/(self._maxF/2), 1.)
-            quality *= 1. * mask.sum()/mask.size
-            quality *= min(1., 0.02/back_threshold)
-            if (len(p0c) < 40 and 1.* mask.sum()/mask.size < 0.90):
-                quality *= 0.1
-            marks = [back_threshold, len(p0c), 1.*mask.sum()/mask.size,
-                1.*status.flatten().sum()/status.flatten().size]
-            #print marks
-            #quality *= min(1,(float(sum(mask))/len(mask)*10)
-            #NOW! IF quality of last second point is 0.01.
-            #And we have frame(a) (so it was sequantial.
-            #Register with this frame. So we have a<->b a<->c and b<->c.
-            #Test if transition is within limits of overall.
-            #Set quality to better if agried.
-            return (p0c, p1c), DataPoint(self._method, quality, homography, marks)
+            quality = 0.97 * mask.sum()/mask.size
+            quality *= min(1.,with_01/(self._points))
+            return with_01, back_threshold, 1.*mask.sum()/mask.size, DataPoint(self._method, self._frames[0].shape, quality, homography)
+        else:
+            return with_01, back_threshold, 0, DataPoint(self._method)    
+
 
 register_methods_cont["LK"] = RegisterImagesContLK
 
