@@ -20,6 +20,11 @@ class RegisterImagesCont():
 
     def _methodInit(self, *args):
         return
+    def cleanLast(self):
+        self._frames.pop(0)
+        if len(self._data) > 0:
+            self._data.pop(0)
+            self._dps.pop(0)
 
     def _calcNext(self):
         data_to_save = None
@@ -71,6 +76,7 @@ class RegisterImagesContByString(RegisterImagesCont):
             reg = register_methods_cont[m](stream=MockStream(),
                     retain=self._data_to_keep, method=m)
             self._sData.append((reg, mstream, quality.pop(0)))
+        
 
     def _calcNext(self):
         goodPoint = None
@@ -85,6 +91,68 @@ class RegisterImagesContByString(RegisterImagesCont):
             return None, d
         else:
             return None, goodpoint
+
+class RegisterImagesContJumped(RegisterImagesContByString):
+    def _methodInit(self, method="LK-SURF", quality=0.5, jumpmethod="SURF",*args):
+        RegisterImagesContByString._methodInit(self, method, quality)
+        self.count = 0
+        mstream = MockStream()
+        mstream.setFrame(self._frames[0])
+        reg = register_methods_cont[jumpmethod](stream=MockStream(),
+                retain=self._data_to_keep, method=jumpmethod)
+        self.check = (reg, mstream)
+
+    def _calcNext(self):
+        goodPoint = None
+        found = False
+        for (m,s,q) in self._sData:
+            s.setFrame(self._frames[0])
+            d = m.getNextDataPoint(found)
+            print d
+            if d.get_quality() > (q * (0.98**self.count)) and not found:
+                if self.count != 0:
+                    print "GAPPEEED \t " + str(self.count) + " accepted \t " +str(d.get_quality())
+                    self.count = 0
+                found = True
+                goodpoint = d
+
+
+        #print (d.get_quality(), q, self.count, found)
+        self.check[1].setFrame(self._frames[0])
+        if found:
+            self.check[0].getNextDataPoint(True)
+            return None, goodpoint
+
+        self.count += 1
+        if self.count > 50:
+            print "Too long gap"
+            return None, None
+        #Gap not acceptable, try!
+        if self.count > 5 and self.count % 3 == 0:
+            #Try with check method
+            data = self.check[0].getNextDataPoint()
+            print data
+            #Good point woohoo
+            if data.get_quality() > 0.5*(0.95**self.count):
+                print "WOOHOO " + str(data)
+                return None, data
+            else:
+                #Clean, boo
+                self.check[0].cleanLast()
+                for (m,s,q) in self._sData:
+                    m.cleanLast()
+                return None, DataPoint("SKIPPED")
+        else:
+            #Acceptable gap, clean
+            data = self.check[0].getNextDataPoint(True)
+            self.check[0].cleanLast()
+            for (m,s,q) in self._sData:
+                m.cleanLast()
+
+            return None, DataPoint("SKIPPED")
+                
+register_methods_cont["JUMPED"] = RegisterImagesContJumped
+
 
 class RegisterImagesContByStringAll(RegisterImagesContByString):
     def _calcNext(self):
@@ -103,7 +171,7 @@ class RegisterImagesGapedByString(RegisterImagesContByString):
 
     def _calcNext(self):
         ret = None, DataPoint("Skiped")
-        print self._gap, self._skiped
+        #print self._gap, self._skiped
         if self._skiped % self._gap == 0:
             #Only one
             ret = RegisterImagesContByString._calcNext(self)
@@ -138,7 +206,7 @@ class RegisterImagesContStandart(RegisterImagesCont):
         if (len(c2) >= 4):
             homography, mask = cv2.findHomography(c2, c1, cv2.RANSAC)
             #Asume if features matched it means they are good
-            quality = min(len(c2)/100.,1.)
+            quality = min(len(c2)/250.,1.)
             quality *= mask.sum()/mask.size
             return (k2, d2), DataPoint(self._method, self._frames[0].shape, quality, homography, [len(c2), mask.sum()/mask.size])
         else:
@@ -175,6 +243,8 @@ class RegisterImagesContLK(RegisterImagesCont):
             p1=cv2.perspectiveTransform(pre_points, prevHomo)
             flags+=cv2.OPTFLOW_USE_INITIAL_FLOW
         p0 = pre_points
+        if self._frames[frame1].shape != self._frames[frame0].shape:
+            return p0, [], DataPoint(self._method, marks=marks)
         p1, st0, err = cv2.calcOpticalFlowPyrLK(self._frames[frame1], self._frames[frame0], p0, p1, flags=flags, **lk_params)
         self._count += 1
         d = abs(p0).reshape(-1, 2).max(-1)
@@ -234,7 +304,7 @@ class RegisterImagesContLK(RegisterImagesCont):
         from_points = self.getFromPoints(0)
         
         #If none or not enouth calculate from this frame
-        if from_points is None or len(from_points) < self._maxF*4./5.:
+        if from_points is None or len(from_points) < self._maxF*3.5/5.:
             from_points = self.calcPoints(0, from_points)
         
         if len(from_points) < 4:
@@ -253,7 +323,7 @@ class RegisterImagesContLK(RegisterImagesCont):
         #Doublecheck?
         other_dps = [dp0_1]
         back, num,dp = 0,0,0
-        if dp0_1._quality < 1:
+        if dp0_1._quality < 0.9:
             #double is better!
             back, num, dp, newdp0_1 = self.double(prev_croped, new_points_1)
             if newdp0_1._quality > 0.9:
@@ -277,9 +347,9 @@ class RegisterImagesContLK(RegisterImagesCont):
         dp0_1._marks.append(dp)
        
         #Check with last frame, it will update it
-        dp0_1 = self.checkback(other_dps)
+        dp0_1 = self.checkback(other_dps, quality=0.9)
         
-        print str(self._count) + "     " + str(dp0_1._quality )
+        #print str(self._count) + "     " + str(dp0_1._quality )
         return (from_points, new_points_1), dp0_1
         
     def checkback(self, dps, quality=0.98, distance=50):
@@ -300,7 +370,7 @@ class RegisterImagesContLK(RegisterImagesCont):
                         ndist = dp0_2.get_distance(dp1_2*dpn)
                         if ndist is not None and ndist < dist:
                             dist = ndist
-                            print "Happended"
+                            #print "Happended"
                             dp0_1._homo = dpn._homo 
 
                 if dist is None:

@@ -29,6 +29,15 @@ class DataPoint():
         else:
             return (0,0)
 
+    def get_better2D(self):
+        if self._homo is not None:
+            mid = [self._shape[1]/2, self._shape[0]/2]
+            amid = np.array([mid], dtype='float32')
+            nmid = cv2.perspectiveTransform(np.array([amid]), self._homo)[0][0]
+            return (nmid[1]-mid[1],nmid[0]-mid[0])
+        else:
+            return (0,0)
+
     def get_quality(self):
         return self._quality
     def get_marks(self):
