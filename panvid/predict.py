@@ -108,7 +108,7 @@ class RegisterImagesContJumped(RegisterImagesContByString):
         for (m,s,q) in self._sData:
             s.setFrame(self._frames[0])
             d = m.getNextDataPoint(found)
-            print d
+            #print d
             if d.get_quality() > (q * (0.98**self.count)) and not found:
                 if self.count != 0:
                     print "GAPPEEED \t " + str(self.count) + " accepted \t " +str(d.get_quality())
@@ -131,7 +131,7 @@ class RegisterImagesContJumped(RegisterImagesContByString):
         if self.count > 5 and self.count % 3 == 0:
             #Try with check method
             data = self.check[0].getNextDataPoint()
-            print data
+            #print data
             #Good point woohoo
             if data.get_quality() > 0.5*(0.95**self.count):
                 print "WOOHOO " + str(data)
@@ -323,10 +323,10 @@ class RegisterImagesContLK(RegisterImagesCont):
         #Doublecheck?
         other_dps = [dp0_1]
         back, num,dp = 0,0,0
-        if dp0_1._quality < 0.9:
+        if dp0_1._quality < 0.95:
             #double is better!
             back, num, dp, newdp0_1 = self.double(prev_croped, new_points_1)
-            if newdp0_1._quality > 0.9:
+            if newdp0_1._quality > 0.95:
                 newdp0_1._marks = dp0_1._marks
                 dp0_1 = newdp0_1
                 other_dps.insert(0,dp0_1)
@@ -347,7 +347,7 @@ class RegisterImagesContLK(RegisterImagesCont):
         dp0_1._marks.append(dp)
        
         #Check with last frame, it will update it
-        dp0_1 = self.checkback(other_dps, quality=0.9)
+        dp0_1 = self.checkback(other_dps, quality=0.95)
         
         #print str(self._count) + "     " + str(dp0_1._quality )
         return (from_points, new_points_1), dp0_1
