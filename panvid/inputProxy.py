@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import random 
 from panvid.input import StreamInput
 class StreamProxy(StreamInput):
     def __init__(self, stream):
@@ -14,17 +15,42 @@ class StreamProxy(StreamInput):
     def modifyDataPoints(self,datapoints):
         return datapoints
 
-class StreamProxyBorder(StreamProxy):
-    def __init__(self, stream, borderColor=(0,0,255), borderWidth=5,
-            borderColorEnd=(0,0,50)):
-        self._bc = borderColor
-        self._bw = borderWidth
-        self._bce = borderColorEnd
+class StreamProxyColor(StreamProxy):
+    def __init__(self, stream):
         self._stream = stream
 
     def getFrame(self):
         frame = self._stream.getFrame()
+        if frame is None:
+            return None
+        self._framenum = self._stream._framenum
+        color = (random.randint(0,255),random.randint(0,255),
+random.randint(0,255))
+        frame[:,:] = np.array(color)
+        return frame
+
+    def getClone(self):
+        return StreamProxyColor(self._stream.getClone())
+
+class StreamProxyBorder(StreamProxy):
+    def __init__(self, stream, borderColor=(0,0,255), borderWidth=5,
+            borderColorEnd=(0,0,50), random=False):
+        self._bc = borderColor
+        self._bw = borderWidth
+        self._bce = borderColorEnd
+        self._stream = stream
+        self._random = random
+
+    def getFrame(self):
+        frame = self._stream.getFrame()
+        if frame is None:
+            return None
+        self._framenum = self._stream._framenum
         for z in xrange(self._bw, 0, -1):
+            if self._random:
+                self._bc = (random.randint(0,255),random.randint(0,255),
+random.randint(0,255))
+                self._bce=self._bc
             col = np.array(self._bc) - \
                   (np.array(self._bc) - np.array(self._bce)) \
                   /(self._bw)*(self._bw-z)

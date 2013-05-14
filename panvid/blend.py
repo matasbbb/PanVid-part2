@@ -45,9 +45,10 @@ class BlendImages():
             cv2.imshow(window, image)
 
     def blendNextN (self, dataset, prev=False, wait=False):
+        self.stop = False
         if self._reg is not None:
             d = self._reg.getNextDataPoint()
-            while d is not None:
+            while d is not None and not self.stop:
                 self._stream.setFrame(self._reg._frames[0])
                 rez = self.blendNext(d)
                 if rez is not None:
@@ -59,6 +60,8 @@ class BlendImages():
                 d = self._reg.getNextDataPoint()
         else:
             for data in dataset:
+                if self.stop:
+                    return
                 if self._pg is not None:
                     self._pg(self._stream.getProgress())
                 rez = self.blendNext(data)
@@ -146,6 +149,7 @@ class BlendOverlayCInline(BlendImages):
             else:
                 inter = cv2.INTER_NEAREST
                 print "nearest"
+
             transf_mask =  cv2.warpPerspective(src=self._mask,M=chomo, dsize=s, flags=inter)
             #print transf_mask.dtype
             shift = (self._data[0]+top, self._data[1]+left)
@@ -224,7 +228,7 @@ class BlendOverlayNearest(BlendOverlayCInline):
     _weights = True
     _mtype = np.int32
     _imtype = None
-    maskCode = "mask(x,y) = 1073741824 - (x-midx)*(x-midx) - (y-midy)*(y-midy);"
+    maskCode = "{mask(x,y) = 1073741824 - (x-midx)*(x-midx) - (y-midy)*(y-midy);}"
     blendCode =  """
                         if ( weights(x,y) <= mask(x-x1,y-y1)){
                             weights(x,y) = mask(x-x1,y-y1);

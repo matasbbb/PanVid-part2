@@ -48,8 +48,14 @@ class VideoInput(StreamInput):
     def getClone(self):
         return VideoInput(self._url)
 
-
 InputRegister["Simple video"] = (VideoInput, "video.glade")
+
+class WebCamInput(VideoInput):
+    def __init__(self, *args, **kargs):
+        VideoInput.__init__(self, 0)
+InputRegister["Webcam"] = (WebCamInput, None)
+
+
 
 class VideoInputAdvanced(VideoInput):
     def __init__(self, url, bound=0, skip=0, start=0):

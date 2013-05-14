@@ -7,7 +7,9 @@ class MockStream():
         self.frames.append(frame)
     def getFrame(self):
         return self.frames.pop(0)
-
+    def skipFrames(self, n):
+        for i in xrange(n):
+            self.frames.pop(0)
 class DataPoint():
     def __init__(self, method, shape=(1000,1000), quality=0, homo=None, marks=[]):
         self._method = method
@@ -68,8 +70,23 @@ class DataPoint():
             nhomo = np.dot(self.get_homo(), other.get_homo())
         else:
             nhomo = None
-
         return DataPoint(self._method + "*" + other._method, self._shape, self._quality * other._quality, nhomo )
+
+    def get_middle(self, other):
+        nhomo = None
+        if self._homo is not None  and other.get_homo() is not None:
+            des = cv2.perspectiveTransform(self._cor, self._homo)
+            desn = cv2.perspectiveTransform(self._cor, other.get_homo())
+            new_cor = []
+            for p1,p2 in zip(des[0], desn[0]):
+                new_cor.append([(p1[0] + p2[0])/2, (p1[1] + p2[1])/2])
+            new_cor = np.array(new_cor,dtype='float32')
+            new_cor = np.array([new_cor])
+            old_cor = self._cor
+            nhomo, mask = cv2.findHomography(old_cor, new_cor, cv2.RANSAC)
+        return DataPoint(self._method + "mid" + other._method, self._shape, self._quality * other._quality, nhomo)
+
+
 class DataPoints(DataPoint):
     def __init__(self, points):
         #For compatibility

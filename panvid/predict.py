@@ -3,6 +3,7 @@ from panvid.predictHelpers import *
 import numpy as np
 
 register_methods_cont = {}
+register_methods_top = {}
 
 class RegisterImagesCont():
     def __init__(self, stream, retain=2, *args, **kwargs):
@@ -18,7 +19,7 @@ class RegisterImagesCont():
         self._method = "Not Set"
         self._methodInit(*args, **kwargs)
 
-    def _methodInit(self, *args):
+    def _methodInit(self, *args, **kwargs):
         return
     def cleanLast(self):
         self._frames.pop(0)
@@ -63,7 +64,7 @@ class RegisterImagesCont():
         return dp
 
 class RegisterImagesContByString(RegisterImagesCont):
-    def _methodInit(self, method="LK-SURF", quality=0.5, *args):
+    def _methodInit(self, method="LK-SURF", quality=0.5, *args, **kwargs):
         #Will save registerers
         if quality.__class__ == float:
             quality = [quality] * 10
@@ -73,9 +74,10 @@ class RegisterImagesContByString(RegisterImagesCont):
         for m in methods:
             mstream = MockStream()
             mstream.setFrame(self._frames[0])
+            q = quality.pop(0)
             reg = register_methods_cont[m](stream=MockStream(),
-                    retain=self._data_to_keep, method=m)
-            self._sData.append((reg, mstream, quality.pop(0)))
+                    retain=self._data_to_keep, method=m, quality=q)
+            self._sData.append((reg, mstream, q))
         
 
     def _calcNext(self):
@@ -93,14 +95,16 @@ class RegisterImagesContByString(RegisterImagesCont):
             return None, goodpoint
 
 class RegisterImagesContJumped(RegisterImagesContByString):
-    def _methodInit(self, method="LK-SURF", quality=0.5, jumpmethod="SURF",*args):
-        RegisterImagesContByString._methodInit(self, method, quality)
+    def _methodInit(self, method="LK-SURF", quality=0.5, jumpmethod="SURF", *args, **kwargs):
+        RegisterImagesContByString._methodInit(self, method, quality, *args, **kwargs)
         self.count = 0
         mstream = MockStream()
         mstream.setFrame(self._frames[0])
         reg = register_methods_cont[jumpmethod](stream=MockStream(),
                 retain=self._data_to_keep, method=jumpmethod)
         self.check = (reg, mstream)
+        print self._sData
+        print self.check
 
     def _calcNext(self):
         goodPoint = None
@@ -109,13 +113,12 @@ class RegisterImagesContJumped(RegisterImagesContByString):
             s.setFrame(self._frames[0])
             d = m.getNextDataPoint(found)
             #print d
-            if d.get_quality() > (q * (0.98**self.count)) and not found:
+            if d.get_quality() >= (q * (0.98**self.count)) and not found:
                 if self.count != 0:
                     print "GAPPEEED \t " + str(self.count) + " accepted \t " +str(d.get_quality())
                     self.count = 0
                 found = True
                 goodpoint = d
-
 
         #print (d.get_quality(), q, self.count, found)
         self.check[1].setFrame(self._frames[0])
@@ -133,7 +136,7 @@ class RegisterImagesContJumped(RegisterImagesContByString):
             data = self.check[0].getNextDataPoint()
             #print data
             #Good point woohoo
-            if data.get_quality() > 0.5*(0.95**self.count):
+            if data.get_quality() >= q * (0.90**self.count):
                 print "WOOHOO " + str(data)
                 return None, data
             else:
@@ -151,7 +154,10 @@ class RegisterImagesContJumped(RegisterImagesContByString):
 
             return None, DataPoint("SKIPPED")
                 
-register_methods_cont["JUMPED"] = RegisterImagesContJumped
+register_methods_top["SKIP"] = RegisterImagesContJumped
+register_methods_top["ALL"] = RegisterImagesContByString
+
+
 
 
 class RegisterImagesContByStringAll(RegisterImagesContByString):
@@ -164,8 +170,8 @@ class RegisterImagesContByStringAll(RegisterImagesContByString):
         return None, DataPoints(points)
 
 class RegisterImagesGapedByString(RegisterImagesContByString):
-    def _methodInit(self, method="LK-SURF", quality=0.5, gap=0, *args):
-        RegisterImagesContByString._methodInit(self, method, quality, *args)
+    def _methodInit(self, method="LK-SURF", quality=0.5, gap=0, *args, **kwargs):
+        RegisterImagesContByString._methodInit(self, method, quality, *args, **kwargs)
         self._gap = gap + 1
         self._skiped = 0
 
@@ -184,7 +190,7 @@ class RegisterImagesGapedByString(RegisterImagesContByString):
 
 class RegisterImagesContStandart(RegisterImagesCont):
     _data_to_keep = 1
-    def _methodInit(self, method="SURF"):
+    def _methodInit(self, method="SURF", *args, **kwargs):
         self._method = method
         self._sData = {"extractor":FeatureExtractor(method)}
 
@@ -227,12 +233,16 @@ lk_params = dict( winSize  = (23, 23),
                   criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 40, 0.005))
 
 class RegisterImagesContLK(RegisterImagesCont):
-    def _methodInit(self, method="LK", *args):
+    def _methodInit(self, method="LK", *args, **kargs):
         self._method = "LK"
         self._maxF = self._frames[0].shape[0]/feature_params["minDistance"] * \
                      self._frames[0].shape[1]/feature_params["minDistance"] / 10
         self._maxF = None
-        
+        if kargs.has_key("quality"):
+            #Check if around quality
+            self._quality = kargs["quality"] + 0.10
+        else:
+            self._quality = 0.95
         self._sData = lambda image: cv2.goodFeaturesToTrack(image, **feature_params)
         self._points = self._frames[0].shape[0]*self._frames[0].shape[1]*0.0001
 
@@ -270,7 +280,7 @@ class RegisterImagesContLK(RegisterImagesCont):
     # frame[0]<-data[0][1]<-frame[1]<-data[0][0]<(posible =) - data[1][1]-frame[2]<-data[1][0]  
     def getFromPoints(self, f, new=True):
         points = None
-        if len(self._data) > f and len(self._data[f]) > 1:
+        if len(self._data) > f and self._data[f] is not None  and len(self._data[f]) > 1:
              points = self._data[f][new]
         return points
 
@@ -323,10 +333,10 @@ class RegisterImagesContLK(RegisterImagesCont):
         #Doublecheck?
         other_dps = [dp0_1]
         back, num,dp = 0,0,0
-        if dp0_1._quality < 0.95:
+        if dp0_1._quality < self._quality:
             #double is better!
             back, num, dp, newdp0_1 = self.double(prev_croped, new_points_1)
-            if newdp0_1._quality > 0.95:
+            if newdp0_1._quality > self._quality:
                 newdp0_1._marks = dp0_1._marks
                 dp0_1 = newdp0_1
                 other_dps.insert(0,dp0_1)
@@ -347,7 +357,7 @@ class RegisterImagesContLK(RegisterImagesCont):
         dp0_1._marks.append(dp)
        
         #Check with last frame, it will update it
-        dp0_1 = self.checkback(other_dps, quality=0.95)
+        dp0_1 = self.checkback(other_dps, quality=self._quality)
         
         #print str(self._count) + "     " + str(dp0_1._quality )
         return (from_points, new_points_1), dp0_1

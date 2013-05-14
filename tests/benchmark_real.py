@@ -98,7 +98,7 @@ class Benchmark(object):
         if self.proxy is not None or True:
             nvid = []
             for size, url in self.vidsamples:
-                if size < 0.5:
+                if size > 0.5:
                     nvid.append((size, url))
             self.vidsamples = nvid
 
@@ -221,9 +221,22 @@ class Benchmark(object):
             s = ""
             for p in ps: 
                 dist = dp.get_distance(p)
+                p._cor = dp._cor
+                p._shape = dp._shape
                 if dist == None:
                     dist = 10000
                 s += str(dist) + " "
+            if len(ps) == 2:
+                mid = ps[0].get_middle(ps[1])
+                dist = dp.get_distance(mid)
+                if dist == None:
+                    dist = 10000
+                s += str(dist) + " "
+                dist = ps[0].get_distance(ps[1])
+                if dist == None:
+                    dist = 10000
+                s += str(dist) + " "
+
             s += str(dp.get_quality())
             for m in dp.get_marks():
                 s += " " + str(m)
@@ -314,8 +327,8 @@ class Benchmark(object):
         return s
 
 #b = Benchmark(0,100,True,["SURF"])
-#b = Benchmark(0,600,True,["SURF", "SIFT"], progress=False)
-b = Benchmark(0,400,True, progress=False)
+b = Benchmark(0,600,True,["SURF", "SIFT"], progress=False)
+#b = Benchmark(0,400,True, progress=False)
 totaltime = {0:{},1:{}}
 
 cProfile.runctx("rez = b.next_bench()", locals(), globals(), "/tmp/bench")
@@ -330,7 +343,7 @@ while rez:
     else:
         methodID, framesizeID, imageID, rez = rez
 
-    if real and True:
+    if real and False:
         stream = VideoInputAdvanced(b.vidsamples[vidsampleID][1], bound=b.bound, start=b.start)
         stream = StreamProxyBorder(stream,borderWidth=6, borderColorEnd=(255,0,0))
         #blend = BlendOverlay2D(stream.getClone())

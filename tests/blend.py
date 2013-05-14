@@ -6,6 +6,7 @@ from panvid.predict import *
 from panvid.blend import *
 from panvid.input import *
 from panvid.inputProxy import *
+import numpy as np
 import time
 import cv2
 
@@ -70,17 +71,33 @@ class TestBlend(unittest.TestCase):
         blend.blendNextN(None, False, False)
         cv2.imwrite("/tmp/testSecondLK.jpg", blend.getPano())
     
+    def non_test_masks(self):
+        for name in BlendRegister.keys():
+            blendm, _ = BlendRegister[name]
+            path = "tests/samples/moresample/0.3MpxParkCenterSlow360,21sec,SunDist.AVI"
+            b = blendm(VideoInput(path))
+            mask = b._mask
+            minimal = mask.min()*1.0
+            maximal = mask.max()*1.0
+            mask = (((mask.astype(np.float) - minimal)/maximal)*256).astype(np.uint8)
+            cv2.imwrite("/media/sf_G_DRIVE/new/images/mask" + name +".jpg", mask)
+            print(name)
+
+
     def test_all_samples(self):
         path = "tests/samples/moresample/"
-        samples = [("1flare", path + "0.3MpxParkCenterSlow360,21sec,SunDist.AVI", 210, 265),["2verticalgood", path + "2MpxParkSide320,73sec,Sideways.MOV", 500,600],["3normal",path+"2MpxParkSide320,20sec,LittleJumpy.MOV", 500, 600]]
-        for sample_name, path, start, end in samples[2:3]:
+        samples = [("1flare", path + "0.3MpxParkCenterSlow360,21sec,SunDist.AVI", 210, 265),["2verticalgood", path + "2MpxParkSide320,73sec,Sideways.MOV", 500,600],["3normal",path+"2MpxParkSide320,20sec,LittleJumpy.MOV", 500, 600], ["4normal",path+"2MpxParkSide320,20sec,LittleJumpy.MOV", 107, 109]]
+        for sample_name, path, start, end in samples[3:4]:
             stream = VideoInputAdvanced(path, end, 0, start)
-            register = RegisterImagesContJumped(stream.getClone(), 3, method="LK-SURF", quality=0.95, jumpmethod="SURF")
+            register = RegisterImagesContJumped(stream.getClone(), 3, method="LK", quality=0.90, jumpmethod="SURF")
             pred_path = register.getDiff()
-            for warp in [True, False]:
+            for warp in [False, True]:
                 for name in BlendRegister.keys():
                     blendm, _ = BlendRegister[name]
-                    blend = blendm(stream.getClone(), warp=warp)
+                    pstream = stream.getClone()
+                    #pstream = StreamProxyBorder(pstream, random=True)
+                    pstream = StreamProxyColor(pstream) 
+                    blend = blendm(pstream, warp=warp)
                     sec = 0 - time.time()
                     blend.blendNextN(pred_path, False, False)
                     sec += time.time()
@@ -88,7 +105,46 @@ class TestBlend(unittest.TestCase):
                                 sample_name + " " + name + " " + 
                                 str(warp) + str(sec)+".jpg",
                                 blend.getPano())
-            
+
+    def not_test_qualitive_samples(self):
+        path = "tests/samples/moresample/"
+        samples = [("1flare", path + "0.3MpxParkCenterSlow360,21sec,SunDist.AVI", 210, 265),
+                ["2verticalgood", path + "2MpxParkSide320,73sec,Sideways.MOV", 500,600],
+                ["3normal",path+"2MpxParkSide320,20sec,LittleJumpy.MOV", 500, 600], 
+                ["4normal",path+"2MpxParkSide320,20sec,LittleJumpy.MOV", 100, 120],
+                ["5shake",path+"2MpxParkSide90,24sec,VeryShaky.MOV",0,300]]
+        for sample_name, path, start, end in samples[4:5]:
+            stream = VideoInputAdvanced(path, end, 0, start)
+            for warp in [False, True]:
+                for q in [0., 0.1,0.4,0.7,0.85,0.9,0.95, 0.98]:
+                    blendm, _ = BlendRegister["Overlay nearest3"]
+                    register = RegisterImagesContJumped(stream.getClone(), 3, method="LK", quality=q, jumpmethod="SURF")
+                    pred_path = register.getDiff()
+                    pstream = stream.getClone()
+                    count = 0
+                    for p in pred_path:
+                        if p.get_homo() is None:
+                            count += 1
+                    print (count)
+
+                    worse = 0
+                    for p in pred_path:
+                        if p.get_quality() < q:
+                            worse += 1
+                    print (worse)
+
+                    #pstream = StreamProxyBorder(pstream, random=True) 
+                    blend = blendm(pstream, warp=warp)
+                    sec = 0 - time.time()
+                    blend.blendNextN(pred_path, False, False)
+                    sec += time.time()
+                    cv2.imwrite("/media/sf_G_DRIVE/new/images/quality" +
+                                sample_name + " " + str(q) + " " + 
+                                str(count) + " " + str(worse) + " " +
+                                str(warp) + str(sec)+".jpg",
+                                blend.getPano())
+
+           
     def non_test_contin_webcam(self):
         progressCB = lambda *args: print (args)
         reg = RegisterImagesContByString(VideoInput(0),"LK-SURF")
